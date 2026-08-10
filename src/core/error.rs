@@ -21,3 +21,13 @@ pub enum DbError {
     #[error("join error: {0}")]
     Join(String),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum NetError {
+    #[error("HTTP {status}: {url}")]
+    Http { status: reqwest::StatusCode, url: String },
+    #[error("I/O error: {0}")]
+    Io(#[from] std::io::Error),
+    #[error("reqwest error: {0}")]
+    Reqwest(#[from] reqwest::Error),
+}
