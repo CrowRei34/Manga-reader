@@ -9,25 +9,33 @@ use std::collections::HashMap;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
 use std::sync::atomic::{AtomicU64, Ordering};
-use std::sync::Arc;
+use std::sync::{Arc, Mutex};
 use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 use tokio::net::UnixStream;
 use tokio::process::Command;
-use tokio::sync::{Mutex, oneshot};
+use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 pub struct DaemonClient {
     // Base fd (std) para poder hacer try_clone()/dup() por cada call(); el reader
-    // se queda con una copia tokio del mismo socket.
-    socket: Option<std::os::unix::net::UnixStream>,
-    child: Option<tokio::process::Child>,
-    pending: Arc<Mutex<HashMap<u64, oneshot::Sender<Result<Value, RpcException>>>>>,
+    // se queda con una copia tokio del mismo socket. Envolvido en `Mutex` para
+    // poder compartir el `DaemonClient` como `Arc<DaemonClient>` desde el UI:
+    // el lado del spawn (`spawn_arc`) y el lado del runtime (`call`) pueden
+    // mutar el estado interno sin necesidad de `&mut self`.
+    socket: Mutex<Option<std::os::unix::net::UnixStream>>,
+    child: Mutex<Option<tokio::process::Child>>,
+    pending: Arc<AsyncMutex<HashMap<u64, oneshot::Sender<Result<Value, RpcException>>>>>,
     next_id: AtomicU64,
 }
 
 impl DaemonClient {
     pub fn new() -> Self {
-        Self { socket: None, child: None, pending: Arc::new(Mutex::new(HashMap::new())), next_id: AtomicU64::new(1) }
+        Self {
+            socket: Mutex::new(None),
+            child: Mutex::new(None),
+            pending: Arc::new(AsyncMutex::new(HashMap::new())),
+            next_id: AtomicU64::new(1),
+        }
     }
 
     pub fn default_jar_path() -> PathBuf {
@@ -60,7 +68,7 @@ impl DaemonClient {
         "java".to_string()
     }
 
-    pub async fn start(&mut self, jar_path: Option<&str>, java_path: Option<&str>) -> Result<(), DaemonError> {
+    pub async fn start(&self, jar_path: Option<&str>, java_path: Option<&str>) -> Result<(), DaemonError> {
         let jar = jar_path.map(PathBuf::from).unwrap_or_else(Self::default_jar_path);
         if !jar.exists() {
             return Err(DaemonError::Spawn(format!("No se encuentra el JAR del daemon: {}", jar.display())));
@@ -94,7 +102,10 @@ impl DaemonClient {
                 }
             });
         }
-        self.child = Some(child);
+        {
+            let mut g = self.child.lock().unwrap();
+            *g = Some(child);
+        }
 
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
@@ -103,7 +114,10 @@ impl DaemonClient {
                 // std para poder duplicarlo (try_clone) desde cada call().
                 let std_s = s.into_std()?;
                 let reader_s = std_s.try_clone()?;
-                self.socket = Some(std_s);
+                {
+                    let mut g = self.socket.lock().unwrap();
+                    *g = Some(std_s);
+                }
                 self.spawn_reader(tokio::net::UnixStream::from_std(reader_s)?);
                 return Ok(());
             }
@@ -139,24 +153,61 @@ impl DaemonClient {
     }
 
     async fn call(&self, method: &str, params: Option<Value>) -> Result<Value, DaemonError> {
-        let std_s = self.socket.as_ref().ok_or_else(|| DaemonError::Socket("daemon no iniciado".into()))?;
+        // Lock breve: sólo para duplicar el fd std desde el socket guardado.
+        let std_s = {
+            let g = self.socket.lock().unwrap();
+            let s = g.as_ref().ok_or_else(|| DaemonError::Socket("daemon no iniciado".into()))?;
+            s.try_clone()?
+        };
         let id = self.next_id.fetch_add(1, Ordering::SeqCst);
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
         let req = RpcRequest { id, method: method.to_string(), params };
-        let mut sock = tokio::net::UnixStream::from_std(std_s.try_clone()?)?;
+        let mut sock = tokio::net::UnixStream::from_std(std_s)?;
         sock.write_all(req.encode().as_bytes()).await?;
         sock.write_all(b"\n").await?;
         let res = rx.await.map_err(|_| DaemonError::Socket("socket cerrado".into()))?;
         res.map_err(DaemonError::Rpc)
     }
 
-    pub async fn stop(&mut self) {
-        self.socket = None;
-        if let Some(mut child) = self.child.take() {
+    pub async fn stop(&self) {
+        {
+            let mut g = self.socket.lock().unwrap();
+            *g = None;
+        }
+        // Take the child out of the mutex BEFORE awaiting `child.wait`, so the
+        // std lock isn't held across `.await` (would block the runtime if a
+        // reader locked it concurrently).
+        let child_opt = { self.child.lock().unwrap().take() };
+        if let Some(mut child) = child_opt {
             let _ = child.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
         }
+    }
+
+    /// Construye un `Arc<DaemonClient>` y arranca el daemon en un tokio task
+    /// desacoplado. Devuelve el `Arc` inmediatamente para que el caller (el
+    /// UI) pueda guardarlo en `AppState.daemon` y empezar a lanzar RPC tan
+    /// pronto como el fondo conecte el socket. La inicialización del UI
+    /// debería recibir un `Task::perform` que polla `ping`/`is_alive` y emita
+    /// `Message::DaemonStarted(Ok(_))` cuando el daemon responde.
+    pub fn spawn_arc(jar_path: &str) -> Arc<Self> {
+        let c = Arc::new(Self::new());
+        let runner = Arc::clone(&c);
+        let jar = jar_path.to_string();
+        tokio::spawn(async move {
+            if let Err(e) = runner.start(Some(&jar), None).await {
+                eprintln!("[daemon] start falló: {e}");
+            }
+        });
+        c
+    }
+
+    /// Heartbeat del UI: indica si el socket del daemon está activo. El
+    /// subscription `daemon-socket` de `app.rs` puesta a correr cada 2s emite
+    /// `Message::DaemonDied` cuando éste devuelve `false`.
+    pub fn is_alive(&self) -> bool {
+        self.socket.lock().unwrap().is_some()
     }
 }
 

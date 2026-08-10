@@ -127,10 +127,33 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
     }
 }
 
-/// Emite `Message::DaemonDied` si el socket se cierra. Para mantenerlo
-/// simple en esta fase, es una subscription vacía; se llena en Task 13.
-pub fn subscription(_state: &AppState) -> Subscription<Message> {
-    Subscription::none()
+/// Emite `Message::DaemonDied` si el socket del daemon se cierra. La
+/// subscription lanza un stream que polla `DaemonClient::is_alive` cada 2 s
+/// mientras el Arc del daemon viva en `state.daemon`. Al romperse el socket
+/// (daemon muerto o `stop()`), `is_alive` devuelve `false` y se envía
+/// `Message::DaemonDied` (luego el stream termina -> iced detiene la
+/// subscription hasta que se reconstruya con un `Some(daemon)`).
+pub fn subscription(state: &AppState) -> Subscription<Message> {
+    use iced::futures::sink::SinkExt;
+    use std::time::Duration;
+
+    if let Some(d) = &state.daemon {
+        let d = d.clone();
+        Subscription::run_with_id(
+            "daemon-socket",
+            iced::stream::channel(16, move |mut tx| async move {
+                loop {
+                    tokio::time::sleep(Duration::from_secs(2)).await;
+                    if !d.is_alive() {
+                        let _ = tx.send(Message::DaemonDied).await;
+                        break;
+                    }
+                }
+            }),
+        )
+    } else {
+        Subscription::none()
+    }
 }
 
 /// Vista raíz: elige el contenido según `screen` y lo envuelve con el
