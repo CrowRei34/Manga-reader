@@ -1,3 +1,7 @@
+//! DAO de categorías. Superficie completa de la tabla `category` +
+//! `manga_category`, ejercitada por `tests/dao_test`; el UI de categorías
+//! aún no está conectado, así que el binario no referencia estas funciones.
+#![allow(dead_code)]
 use crate::core::error::DbError;
 use crate::core::models::Category;
 use rusqlite::{params, Connection, Row};

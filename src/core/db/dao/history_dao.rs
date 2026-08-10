@@ -31,6 +31,8 @@ pub fn recent(conn: &Connection, limit: i64) -> Result<Vec<(i64, i32, i32, i64)>
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+/// Borra el historial de un manga (UI pendiente).
+#[allow(dead_code)]
 pub fn delete(conn: &Connection, manga_id: i64) -> Result<(), DbError> {
     conn.execute("DELETE FROM history WHERE manga_id=?1", params![manga_id])?;
     Ok(())

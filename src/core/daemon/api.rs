@@ -3,6 +3,9 @@ use crate::core::models::{Manga, Page, PingReply, Source};
 use async_trait::async_trait;
 use std::collections::HashMap;
 
+/// API del daemon (JSON-RPC sobre socket Unix). `page_url` sólo lo invoca el
+/// DownloadManager (`run_job`), aún no enrutado desde el UI.
+#[allow(dead_code)]
 #[async_trait]
 pub trait MangaSourceApi: Send + Sync {
     async fn ping(&self) -> Result<PingReply, DaemonError>;

@@ -28,6 +28,8 @@ impl Database {
         Ok(())
     }
 
+    /// Versión del schema (usada por `database_test` y la migración).
+    #[allow(dead_code)]
     pub fn user_version(&self) -> Result<i32, DbError> {
         let conn = self.conn.lock().unwrap();
         Ok(conn.query_row("PRAGMA user_version", [], |r| r.get(0))?)

@@ -19,6 +19,7 @@ use crate::core::db::dao::manga_dao;
 use crate::core::error::{DaemonError, DbError};
 use crate::core::models::{Chapter, Manga, MangaRef};
 use crate::features::library;
+use crate::features::reader;
 use crate::features::Screen;
 
 #[derive(Debug, Default)]
@@ -89,9 +90,13 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.loading = false;
             Task::none()
         }
-        Message::ChapterSelected(_c) => {
-            // Task 15 (Reader) hookeará aquí `Reader(Message::Load(...))`.
-            Task::none()
+        Message::ChapterSelected(c) => {
+            // Dispara `Reader(Load(c))` (que abre el capítulo) y
+            // `NavigateTo(Screen::Reader)` en paralelo vía `Task::batch`.
+            Task::batch([
+                Task::done(AppMessage::Reader(reader::Message::Load(c))),
+                Task::done(AppMessage::NavigateTo(Screen::Reader)),
+            ])
         }
         Message::AddToLibrary => {
             let m_opt = state.details.manga.clone();

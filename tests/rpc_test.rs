@@ -1,4 +1,4 @@
-use bakeneko::core::daemon::rpc::{RpcErr, RpcRequest, RpcResponse, RpcException, codes};
+use bakeneko::core::daemon::rpc::{RpcRequest, RpcResponse, RpcException, codes};
 
 #[test]
 fn request_encodes_jsonrpc_field() {

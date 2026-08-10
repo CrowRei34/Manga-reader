@@ -15,13 +15,14 @@ use crate::features::details;
 
 #[derive(Debug, Default)]
 pub struct State {
-    pub list: Vec<Manga>,
     pub category_filter: Option<i64>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Load,
+    /// Filtro por categoría; la vista aún no expone el selector.
+    #[allow(dead_code)]
     CategoryFilter(i64),
 }
 

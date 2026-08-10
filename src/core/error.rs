@@ -66,7 +66,11 @@ pub enum NetError {
     Reqwest(#[from] reqwest::Error),
 }
 
+/// Error del DownloadManager. Referenciado por la firma pública de
+/// `DownloadManager::{poll_once,run_job}`; aún sin rutas que lo construyan
+/// en el binario (la cola no está enrutada desde el UI).
 #[derive(Debug, thiserror::Error)]
+#[allow(dead_code)]
 pub enum DownloadError {
     #[error("DB: {0}")]
     Db(#[from] DbError),

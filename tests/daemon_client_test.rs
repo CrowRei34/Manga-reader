@@ -62,7 +62,7 @@ async fn real_client_pings_fake_server() {
     // Override XDG_RUNTIME_DIR so the client looks at our fake socket.
     std::env::set_var("XDG_RUNTIME_DIR", std::env::temp_dir());
 
-    let mut client = bakeneko::core::daemon::client::DaemonClient::new();
+    let client = bakeneko::core::daemon::client::DaemonClient::new();
     // jar_path fake: not used because we point start at an existing dummy file and
     // java_path to /bin/true (the daemon socket is ours, not spawned by java).
     let dummy_jar = std::env::temp_dir().join("bakeneko-dummy.jar");

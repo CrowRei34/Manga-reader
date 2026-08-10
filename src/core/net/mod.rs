@@ -50,6 +50,8 @@ impl ImageCache {
     /// Descarga (o reusa de caché) la imagen de `url` y devuelve un
     /// [`iced::widget::image::Handle`] listo para pintar, o `None` si la
     /// descarga o la lectura del archivo fallan.
+    /// (Helper de render; los features usan `get` + paths por ahora.)
+    #[allow(dead_code)]
     pub async fn get_handle(&self, url: &str, headers: &HashMap<String, String>) -> Option<iced::widget::image::Handle> {
         let path = self.get(url, headers).await.ok()?;
         let bytes = std::fs::read(path).ok()?;

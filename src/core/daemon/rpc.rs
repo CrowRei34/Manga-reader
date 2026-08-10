@@ -1,5 +1,8 @@
 use serde::{Deserialize, Serialize};
 
+/// Códigos de error estándar de JSON-RPC 2.0. Los usa el lado servidor
+/// (daemon Java); en el cliente aún no se construyen respuestas de error.
+#[allow(dead_code)]
 pub mod codes {
     pub const PARSE_ERROR: i32 = -32700;
     pub const INVALID_REQUEST: i32 = -32600;
@@ -54,6 +57,8 @@ impl RpcResponse {
         Ok(RpcResponse { id, result: raw.result, error: raw.error })
     }
 
+    /// Conveniencia usada por los tests (`rpc_test`).
+    #[allow(dead_code)]
     pub fn is_ok(&self) -> bool { self.error.is_none() }
 
     pub fn unwrap(self) -> Result<serde_json::Value, RpcException> {

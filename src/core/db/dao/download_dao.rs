@@ -1,3 +1,7 @@
+//! DAO de descargas. `list` lo usa la pantalla de Descargas; el resto
+//! (`upsert`, `list_by_state`, `update_progress`, `set_state`) lo invoca el
+//! DownloadManager (ejercitado por `tests/download_manager_test`).
+#![allow(dead_code)]
 use crate::core::error::DbError;
 use crate::core::models::{DownloadEntry, DownloadState};
 use rusqlite::{params, Connection, Row};

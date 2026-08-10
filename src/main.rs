@@ -26,6 +26,7 @@ fn main() -> iced::Result {
     }
 
     iced::application("Bakeneko Reader", app::update, app::view)
+        .theme(|state| theme::iced_theme(&state.settings))
         .subscription(app::subscription)
         .run_with(init_state)
 }

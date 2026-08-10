@@ -45,6 +45,8 @@ pub fn upsert(conn: &Connection, m: &Manga, added_at: i64) -> Result<i64, DbErro
     Ok(id)
 }
 
+/// Búsqueda por (source, url); usada por `dao_test` y flujos futuros.
+#[allow(dead_code)]
 pub fn get_by_key(conn: &Connection, source: &str, url: &str) -> Result<Option<Manga>, DbError> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {SELECT_COLS} FROM manga WHERE source=?1 AND url=?2"
@@ -90,6 +92,8 @@ pub fn set_library_flag(conn: &Connection, id: i64, in_library: bool) -> Result<
     Ok(())
 }
 
+/// Quita un manga de la librería/BD (UI pendiente).
+#[allow(dead_code)]
 pub fn delete(conn: &Connection, id: i64) -> Result<(), DbError> {
     conn.execute("DELETE FROM manga WHERE id=?1", params![id])?;
     Ok(())

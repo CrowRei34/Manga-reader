@@ -1,3 +1,6 @@
+//! DAO de capítulos. `list_for_manga` lo usa details/downloads; el resto
+//! (`replace_for_manga`, `mark_read`, helpers) lo ejercita `tests/dao_test`.
+#![allow(dead_code)]
 use crate::core::error::DbError;
 use crate::core::models::Chapter;
 use rusqlite::{params, Connection, Row};

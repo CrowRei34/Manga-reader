@@ -15,6 +15,11 @@
 // funciona desde cualquier hilo que no esté ya dentro de un runtime
 // (caso de los tests `#[test]` planos), y el integrador decide desde
 // dónde invocar el worker.
+//
+// El módulo está completo y ejercitado por `tests/download_manager_test`,
+// pero el binario sólo usa `new` + `subscribe` (cola sin botón "Descargar"
+// en el UI todavía): de ahí el allow de dead_code.
+#![allow(dead_code)]
 
 use crate::core::daemon::api::MangaSourceApi;
 use crate::core::db::dao::{download_dao, manga_dao};

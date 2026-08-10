@@ -23,6 +23,8 @@ pub struct State {
 
 #[derive(Debug, Clone)]
 pub enum Message {
+    /// Refresco manual de "Continuar leyendo"; aún sin botón en la vista.
+    #[allow(dead_code)]
     LoadRecent,
     RecentLoaded(Result<Vec<Manga>, DbError>),
 }

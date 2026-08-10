@@ -38,6 +38,8 @@ impl Default for Manga {
 }
 
 impl Manga {
+    /// Clave compuesta source|url (usada por tests y futuras features).
+    #[allow(dead_code)]
     pub fn key(&self) -> String { format!("{}|{}", self.source, self.url) }
     pub fn blob_json(&self) -> String {
         if self.blob.is_empty() { serde_json::json!({}).to_string() } else { serde_json::Value::Object(self.blob.clone()).to_string() }
@@ -55,7 +57,9 @@ pub struct Chapter {
     #[serde(rename = "uploadDate", default)] pub upload_date: i64,
     pub branch: Option<String>,
     #[serde(skip)] pub blob: serde_json::Map<String, serde_json::Value>,
-    #[serde(skip)] pub read: bool,
+    /// Estado leído; escrito por el DownloadManager (`run_job`) y el flujo
+    /// de lectura; aún sin lectura por el UI.
+    #[serde(skip)] #[allow(dead_code)] pub read: bool,
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
@@ -84,7 +88,9 @@ pub struct DownloadEntry {
     pub done_pages: i32,
 }
 
+/// Categoría de la biblioteca (superficie de la DB; UI pendiente).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct Category {
     pub id: Option<i64>,
     pub name: String,
@@ -93,7 +99,9 @@ pub struct Category {
     pub created_at: i64,
 }
 
+/// Entrada de historial (superficie de la DB; UI pendiente).
 #[derive(Debug, Clone)]
+#[allow(dead_code)]
 pub struct HistoryEntry {
     pub manga: Manga,
     pub chapter_index: i32,
