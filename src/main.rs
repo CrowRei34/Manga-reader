@@ -11,6 +11,7 @@ use iced::Task;
 use app::{AppState, Message};
 use core::daemon::api::MangaSourceApi;
 use core::daemon::client::DaemonClient;
+use core::settings;
 use core::xdg::Xdg;
 
 /// Binario bakeneko. iced 0.13 cambió `Application` (trait, estilo 0.12) por
@@ -93,12 +94,15 @@ fn init_state() -> (AppState, Task<Message>) {
     );
 
     // 4) Estado inicial: daemon (Some) + db (option Some) + daemon_ready=false.
-    //    `..AppState::default()` inicializa el resto (settings, cache, home,
-    //    browse, library) con sus defaults ya probados por `tests/app_test`.
+    //    `..AppState::default()` inicializa el resto (cache, home, browse,
+    //    library) con sus defaults ya probados por `tests/app_test`. La
+    //    settings se carga desde disco para que la pantalla de Ajustes
+    //    persista al reiniciar.
     let state = AppState {
         daemon: Some(daemon),
         daemon_ready: false,
         db,
+        settings: settings::load(),
         ..AppState::default()
     };
 
