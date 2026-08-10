@@ -2293,7 +2293,6 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
 ```
 
 Note: this requires `manga_dao::get_by_id(conn, id)` — add it to Task 9's `manga_dao` (same row mapping as `get_by_key`, `WHERE id=?1`).
-```
 
 - [ ] **Step 3: Wire the missing `library` field on AppState**
 
