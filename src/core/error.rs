@@ -65,3 +65,13 @@ pub enum NetError {
     #[error("reqwest error: {0}")]
     Reqwest(#[from] reqwest::Error),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum DownloadError {
+    #[error("DB: {0}")]
+    Db(#[from] DbError),
+    #[error("daemon: {0}")]
+    Daemon(#[from] DaemonError),
+    #[error("net: {0}")]
+    Net(#[from] NetError),
+}
