@@ -17,6 +17,26 @@ pub struct Manga {
     #[serde(skip)] pub blob: serde_json::Map<String, serde_json::Value>,
 }
 
+impl Default for Manga {
+    fn default() -> Self {
+        Self {
+            source: String::new(),
+            url: String::new(),
+            title: String::new(),
+            public_url: None,
+            rating: 0.0,
+            is_nsfw: false,
+            cover_url: None,
+            large_cover_url: None,
+            description: None,
+            authors: Vec::new(),
+            state: None,
+            chapters: Vec::new(),
+            blob: serde_json::Map::new(),
+        }
+    }
+}
+
 impl Manga {
     pub fn key(&self) -> String { format!("{}|{}", self.source, self.url) }
     pub fn blob_json(&self) -> String {

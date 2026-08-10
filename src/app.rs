@@ -8,12 +8,12 @@ use std::sync::{Arc, Mutex};
 
 use crate::core::daemon::client::DaemonClient;
 use crate::core::daemon::api::MangaSourceApi;
-use crate::core::error::DaemonError;
+use crate::core::error::{DaemonError, DbError};
 use crate::core::models::{Manga, PingReply, Source};
 use crate::core::net::ImageCache;
 use crate::core::settings::Settings;
 use crate::features::shell::NavMsg;
-use crate::features::{browse, home, Screen};
+use crate::features::{browse, details, home, library, Screen};
 
 /// Estado raíz de la app. Una sola `AppState` mutable a través de todos
 /// los features; los sub-estados viven embebidos (`home`, `browse`, ...).
@@ -28,6 +28,8 @@ pub struct AppState {
     pub cache: Arc<ImageCache>,
     pub home: home::State,
     pub browse: browse::State,
+    pub library_state: library::State,
+    pub details: details::State,
     pub library: Vec<Manga>,
 }
 
@@ -44,6 +46,8 @@ impl Default for AppState {
             cache: Arc::new(ImageCache::new()),
             home: home::State::default(),
             browse: browse::State::default(),
+            library_state: library::State::default(),
+            details: details::State::default(),
             library: Vec::new(),
         }
     }
@@ -60,6 +64,10 @@ pub enum Message {
     ErrorDismissed,
     Home(home::Message),
     Browse(browse::Message),
+    Library(library::Message),
+    LibraryLoaded(Result<Vec<Manga>, DbError>),
+    Details(details::Message),
+    DetailsFetched(Result<Manga, DaemonError>),
 }
 
 impl From<NavMsg> for Message {
@@ -124,6 +132,17 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::Home(m) => home::update(state, m),
         Message::Browse(m) => browse::update(state, m),
+        Message::Library(m) => library::update(state, m),
+        Message::LibraryLoaded(Ok(list)) => {
+            state.library = list;
+            Task::none()
+        }
+        Message::LibraryLoaded(Err(e)) => {
+            state.error = Some(e.to_string());
+            Task::none()
+        }
+        Message::Details(m) => details::update(state, m),
+        Message::DetailsFetched(r) => details::update(state, details::Message::Fetched(r)),
     }
 }
 
@@ -162,6 +181,8 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
     let content: Element<Message> = match state.screen {
         Screen::Home => home::view(state),
         Screen::Browse => browse::view(state),
+        Screen::Library => library::view(state),
+        Screen::Details => details::view(state),
         _ => center(text("Pantalla en construcción")).into(),
     };
     crate::features::shell::view(&state.screen, content)

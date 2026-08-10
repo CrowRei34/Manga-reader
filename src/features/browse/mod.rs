@@ -10,8 +10,8 @@ use iced::{Element, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::daemon::api::MangaSourceApi;
-use crate::core::models::Manga;
-use crate::features::Screen;
+use crate::core::models::{Manga, MangaRef};
+use crate::features::details;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -89,8 +89,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 }
 
 /// Vista del feature: row de fuentes + caja de búsqueda + lista scrollable +
-/// botón "Más". Cada manga lanza `NavigateTo(Screen::Details)` (Task 14
-/// reemplaza el placeholder por `Details(Message::Load(MangaRef{..}))`).
+/// botón "Más". Cada manga lanza `Details(Message::Load(MangaRef{..}))` que
+/// dispara el fetch contra el daemon + enruta a la pantalla de detalle.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     // Fuentes: botón por cada source; el activo se marca con "✓" y se deshabilita.
     let source_row = row(
@@ -125,10 +125,15 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     ]
     .spacing(8);
 
-    // Lista de mangas: click → NavigateTo(Details) (placeholder Task 14).
+    // Lista de mangas: click → Details(Message::Load(MangaRef{..})) que
+    // dispara el fetch contra el daemon + enruta a la pantalla de detalle.
     let list_col = column(state.browse.list.iter().map(|m| {
         button(text(&m.title))
-            .on_press(AppMessage::NavigateTo(Screen::Details))
+            .on_press(AppMessage::Details(details::Message::Load(MangaRef {
+                source: m.source.clone(),
+                url: m.url.clone(),
+                title: m.title.clone(),
+            })))
             .into()
     }))
     .spacing(4);

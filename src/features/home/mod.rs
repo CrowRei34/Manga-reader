@@ -13,8 +13,8 @@ use crate::app::{AppState, Message as AppMessage};
 use crate::core::db;
 use crate::core::db::dao::{history_dao, manga_dao};
 use crate::core::error::DbError;
-use crate::core::models::Manga;
-use crate::features::Screen;
+use crate::core::models::{Manga, MangaRef};
+use crate::features::details;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -63,21 +63,29 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 }
 
 /// Vista del feature: título + "Continuar leyendo" + "Biblioteca". Cada manga
-/// lanza `NavigateTo(Screen::Details)` (placeholder; Task 14 reemplaza por
-/// `Details(Message::Load(MangaRef{..}))` con el `MangaRef` concreto).
+/// lanza `Details(Message::Load(MangaRef{..}))` con el `MangaRef` concreto, que
+/// dispara el fetch contra el daemon + enruta a la pantalla de detalle.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let header = text("Bakeneko").size(32);
 
     let recent_row = column(state.home.recent.iter().map(|m| {
         button(text(&m.title))
-            .on_press(AppMessage::NavigateTo(Screen::Details))
+            .on_press(AppMessage::Details(details::Message::Load(MangaRef {
+                source: m.source.clone(),
+                url: m.url.clone(),
+                title: m.title.clone(),
+            })))
             .into()
     }))
     .spacing(4);
 
     let lib_row = column(state.library.iter().map(|m| {
         button(text(&m.title))
-            .on_press(AppMessage::NavigateTo(Screen::Details))
+            .on_press(AppMessage::Details(details::Message::Load(MangaRef {
+                source: m.source.clone(),
+                url: m.url.clone(),
+                title: m.title.clone(),
+            })))
             .into()
     }))
     .spacing(4);
