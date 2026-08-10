@@ -28,6 +28,7 @@ pub struct AppState {
     pub cache: Arc<ImageCache>,
     pub home: home::State,
     pub browse: browse::State,
+    pub library: Vec<Manga>,
 }
 
 impl Default for AppState {
@@ -43,6 +44,7 @@ impl Default for AppState {
             cache: Arc::new(ImageCache::new()),
             home: home::State::default(),
             browse: browse::State::default(),
+            library: Vec::new(),
         }
     }
 }
@@ -99,9 +101,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::CatalogListed(Ok(m)) => {
             state.browse.list = m;
+            state.browse.loading = false;
             Task::none()
         }
         Message::CatalogListed(Err(e)) => {
+            state.browse.loading = false;
             state.error = Some(e.to_string());
             Task::none()
         }

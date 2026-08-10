@@ -44,6 +44,18 @@ pub enum DbError {
     Join(String),
 }
 
+/// Clone manual: `rusqlite::Error` no impl `Clone`, pero el reducer del UI
+/// necesita `Message: Clone` para anidar `Result<_, DbError>`. Degradeamos
+/// `Sql` a `Join` (string) — al reducer sólo le interesa `to_string()`.
+impl Clone for DbError {
+    fn clone(&self) -> Self {
+        match self {
+            DbError::Sql(e) => DbError::Join(e.to_string()),
+            DbError::Join(s) => DbError::Join(s.clone()),
+        }
+    }
+}
+
 #[derive(Debug, thiserror::Error)]
 pub enum NetError {
     #[error("HTTP {status}: {url}")]
