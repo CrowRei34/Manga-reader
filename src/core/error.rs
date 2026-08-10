@@ -13,3 +13,11 @@ pub enum DaemonError {
     #[error("JSON error: {0}")]
     Json(#[from] serde_json::Error),
 }
+
+#[derive(Debug, thiserror::Error)]
+pub enum DbError {
+    #[error("SQL error: {0}")]
+    Sql(#[from] rusqlite::Error),
+    #[error("join error: {0}")]
+    Join(String),
+}
