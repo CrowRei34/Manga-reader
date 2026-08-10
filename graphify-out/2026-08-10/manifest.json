@@ -5,18 +5,18 @@
     "semantic_hash": "61ebc25a869efb6616b27f2ca2882a0c"
   },
   "src/app.rs": {
-    "mtime": 1786382300.4441726,
-    "ast_hash": "16c242cce28da0cba07be61f5c7ff000",
+    "mtime": 1786395810.2067297,
+    "ast_hash": "e118680a2c7e5c966c5940dafd9e50fc",
     "semantic_hash": ""
   },
   "src/core/daemon/api.rs": {
-    "mtime": 1786384680.0473094,
-    "ast_hash": "b6aab79e475c215ee8790e3d305b5efc",
+    "mtime": 1786396477.4738812,
+    "ast_hash": "d2881eddaf2921f8270d32abc5562045",
     "semantic_hash": ""
   },
   "src/core/daemon/client.rs": {
-    "mtime": 1786385272.873576,
-    "ast_hash": "830596af05682f88173cef3b6b5ffe8d",
+    "mtime": 1786391369.2108893,
+    "ast_hash": "a56e40704bb6bc72153e6877664d9b36",
     "semantic_hash": ""
   },
   "src/core/daemon/mod.rs": {
@@ -25,8 +25,8 @@
     "semantic_hash": ""
   },
   "src/core/daemon/rpc.rs": {
-    "mtime": 1786384445.479438,
-    "ast_hash": "91b58bc6fbd5254d7d751f5974fbb145",
+    "mtime": 1786396479.7549093,
+    "ast_hash": "11fec6f36f0c080b5c22b4c3a25b518a",
     "semantic_hash": ""
   },
   "src/core/db/dao/mod.rs": {
@@ -35,8 +35,8 @@
     "semantic_hash": ""
   },
   "src/core/db/mod.rs": {
-    "mtime": 1786385725.9281483,
-    "ast_hash": "783f38d35de410534c94f16ce7b78f0e",
+    "mtime": 1786396480.7009208,
+    "ast_hash": "5a47a75092c3e1121a7465524a4c35fd",
     "semantic_hash": ""
   },
   "src/core/db/schema.rs": {
@@ -45,28 +45,28 @@
     "semantic_hash": ""
   },
   "src/core/downloads/mod.rs": {
-    "mtime": 1786382308.3372667,
-    "ast_hash": "49188ddeb7abaaebe853f16f231123fb",
+    "mtime": 1786396491.161049,
+    "ast_hash": "1160deb8a1f2be2a69d5b21253d7bd62",
     "semantic_hash": ""
   },
   "src/core/error.rs": {
-    "mtime": 1786385698.1268065,
-    "ast_hash": "0acaa1acf6ced403958a9a4cd30f7e64",
+    "mtime": 1786396475.065852,
+    "ast_hash": "a106f559f9671ad229d275ea75a508ec",
     "semantic_hash": ""
   },
   "src/core/mod.rs": {
-    "mtime": 1786382300.22717,
-    "ast_hash": "0491689de788d4101ddb20edb35d48a6",
+    "mtime": 1786389735.944339,
+    "ast_hash": "805665f8c81ce49daac835808d954914",
     "semantic_hash": ""
   },
   "src/core/models.rs": {
-    "mtime": 1786384547.3836854,
-    "ast_hash": "7ff41af51ad9bf6012ab6a546d300c2b",
+    "mtime": 1786396471.8528128,
+    "ast_hash": "f39c2383c8f6b66b3350db5f539e12d7",
     "semantic_hash": ""
   },
   "src/core/net/mod.rs": {
-    "mtime": 1786382308.5622694,
-    "ast_hash": "49188ddeb7abaaebe853f16f231123fb",
+    "mtime": 1786396476.2828667,
+    "ast_hash": "8992b8c896e642680a800d5a729ec5db",
     "semantic_hash": ""
   },
   "src/core/settings.rs": {
@@ -80,33 +80,33 @@
     "semantic_hash": ""
   },
   "src/features/mod.rs": {
-    "mtime": 1786382309.0392752,
-    "ast_hash": "49188ddeb7abaaebe853f16f231123fb",
+    "mtime": 1786387133.4836655,
+    "ast_hash": "33c0de20f5473b4647e6e6dabc59887b",
     "semantic_hash": ""
   },
   "src/main.rs": {
-    "mtime": 1786382299.7831647,
-    "ast_hash": "1cf4146f7b831a1bf26933647d4734c9",
+    "mtime": 1786396093.2061853,
+    "ast_hash": "b708cc764d93e1c49c2db6077499cc7b",
     "semantic_hash": ""
   },
   "src/theme.rs": {
-    "mtime": 1786382308.8032722,
-    "ast_hash": "49188ddeb7abaaebe853f16f231123fb",
+    "mtime": 1786396090.2761495,
+    "ast_hash": "08ea736b56ec318eaf96ba6bee1f879c",
     "semantic_hash": ""
   },
   "docs/superpowers/plans/2026-08-10-bakeneko-rust-port.md": {
-    "mtime": 1786380663.4172993,
-    "ast_hash": "5ec13ce580ab011aaab78d09e232130f",
+    "mtime": 1786390488.8502982,
+    "ast_hash": "78353d18bdcefd5f9b3be7a1e14c2e00",
     "semantic_hash": ""
   },
   "src/lib.rs": {
-    "mtime": 1786383784.003333,
-    "ast_hash": "0ebe20276e5ff5b474e155b01d5317d7",
+    "mtime": 1786387190.4373763,
+    "ast_hash": "3fbc92f67b11fa9415d9780493700449",
     "semantic_hash": ""
   },
   "tests/daemon_client_test.rs": {
-    "mtime": 1786385304.7979684,
-    "ast_hash": "611ff5f7ce277a9ee637f6d040916011",
+    "mtime": 1786396880.437814,
+    "ast_hash": "1daf2eadda14674d4619ebedb8ae1182",
     "semantic_hash": ""
   },
   "tests/models_test.rs": {
@@ -115,8 +115,8 @@
     "semantic_hash": ""
   },
   "tests/rpc_test.rs": {
-    "mtime": 1786384442.6564033,
-    "ast_hash": "8f324d6673e000cc7b4c7e5c8a216866",
+    "mtime": 1786396876.8397698,
+    "ast_hash": "205ec4fc66d49f489648be14fc7165c8",
     "semantic_hash": ""
   },
   "tests/settings_test.rs": {
@@ -135,33 +135,103 @@
     "semantic_hash": ""
   },
   "src/core/db/dao/category_dao.rs": {
-    "mtime": 1786386020.8267756,
-    "ast_hash": "b7910cd2ddc73e4921f1d7a16c3a5060",
+    "mtime": 1786396483.5639558,
+    "ast_hash": "f0960f71e73511791c7db194a71490be",
     "semantic_hash": ""
   },
   "src/core/db/dao/chapter_dao.rs": {
-    "mtime": 1786385997.6604908,
-    "ast_hash": "3ca98f0f0ddb16995e3ef96337ae1fc7",
+    "mtime": 1786396484.302965,
+    "ast_hash": "e01c52d961ab09fdd0686dca273c00c7",
     "semantic_hash": ""
   },
   "src/core/db/dao/download_dao.rs": {
-    "mtime": 1786386038.6299946,
-    "ast_hash": "389894b9313e9bee7e47d57ff6f3daf8",
+    "mtime": 1786396485.1359751,
+    "ast_hash": "74b0567b86583d05fd16aaf1bcbe744a",
     "semantic_hash": ""
   },
   "src/core/db/dao/history_dao.rs": {
-    "mtime": 1786386024.352819,
-    "ast_hash": "603a54be1d901a1a625b5ff1ad1c7265",
+    "mtime": 1786396485.7979832,
+    "ast_hash": "05d2c0e457b06953476e16952c6a9f06",
     "semantic_hash": ""
   },
   "src/core/db/dao/manga_dao.rs": {
-    "mtime": 1786385967.940125,
-    "ast_hash": "fad872ff5c650738d5fdbf7ecf151474",
+    "mtime": 1786396487.337002,
+    "ast_hash": "de67f557492cae12e207dd31ecc2173e",
     "semantic_hash": ""
   },
   "tests/dao_test.rs": {
     "mtime": 1786386289.0311046,
     "ast_hash": "a709e518f8dbf66cfa48d9664f33eba6",
+    "semantic_hash": ""
+  },
+  "src/core/util.rs": {
+    "mtime": 1786389713.5190735,
+    "ast_hash": "9413934919a8be9ed5ef380a25918217",
+    "semantic_hash": ""
+  },
+  "src/features/browse/mod.rs": {
+    "mtime": 1786392468.5941236,
+    "ast_hash": "7075afa8c138d3b5f7aac3df7223d642",
+    "semantic_hash": ""
+  },
+  "src/features/details/mod.rs": {
+    "mtime": 1786393140.1912382,
+    "ast_hash": "1bd0e0f5e8ef0adc0c5ffee9822426b8",
+    "semantic_hash": ""
+  },
+  "src/features/downloads/mod.rs": {
+    "mtime": 1786395695.1083205,
+    "ast_hash": "9d46b258e7bd36089fdd9f9570760a44",
+    "semantic_hash": ""
+  },
+  "src/features/extensions/mod.rs": {
+    "mtime": 1786395706.5084598,
+    "ast_hash": "ecbe218cb3d9894b9e6be54aac588631",
+    "semantic_hash": ""
+  },
+  "src/features/home/mod.rs": {
+    "mtime": 1786396494.1310852,
+    "ast_hash": "eb5af461dcf16e9d8f594d4234195ae1",
+    "semantic_hash": ""
+  },
+  "src/features/library/mod.rs": {
+    "mtime": 1786396494.926095,
+    "ast_hash": "813e707c0d3b1e93e1cb3ae62bc1bbbd",
+    "semantic_hash": ""
+  },
+  "src/features/reader/mod.rs": {
+    "mtime": 1786394611.138076,
+    "ast_hash": "82f41a5a9ea94991c0a2cc705aef7f00",
+    "semantic_hash": ""
+  },
+  "src/features/settings/mod.rs": {
+    "mtime": 1786395702.0854058,
+    "ast_hash": "b6e81ad4dbeba978799bc892fb762652",
+    "semantic_hash": ""
+  },
+  "src/features/shell/mod.rs": {
+    "mtime": 1786387502.01225,
+    "ast_hash": "11b7c9865aacae32b7d091e145275c6c",
+    "semantic_hash": ""
+  },
+  "tests/app_test.rs": {
+    "mtime": 1786387058.5017278,
+    "ast_hash": "b509724704465a197673cae58797393d",
+    "semantic_hash": ""
+  },
+  "tests/net_test.rs": {
+    "mtime": 1786386633.3934112,
+    "ast_hash": "558ab4b59c67804a165cd49e126658fe",
+    "semantic_hash": ""
+  },
+  "tests/download_manager_test.rs": {
+    "mtime": 1786395351.2551186,
+    "ast_hash": "92c2601324825520d83708a558ccb8b0",
+    "semantic_hash": ""
+  },
+  "make_universal.sh": {
+    "mtime": 1786397757.8345082,
+    "ast_hash": "696cbc9955b8f3660c8b45468c243e38",
     "semantic_hash": ""
   }
 }

@@ -1,20 +1,24 @@
-//! Pantalla de Ajustes (Settings). Pickers sobre `state.settings`:
-//! tema (dark/light/system), acento (hex), concurrencia de descargas
-//! (numérico) y vista de biblioteca (grid/list). Cada cambio muta
-//! `state.settings` y persiste vía `settings::save` (write-through, sin
-//! botón "Guardar").
-use iced::widget::{column, pick_list, row, text, text_input};
-use iced::{Element, Task};
+//! Pantalla de Ajustes (Settings) — réplica del diseño original: dos
+//! columnas (sub-nav "Apariencia"/"Lector" a la izquierda; panel derecho
+//! con Previsualización + dropdowns de Tema, Color de Acento y Densidad
+//! de Portadas). Cada cambio persiste vía `settings::save` (write-through).
+use iced::widget::{column, container, pick_list, row, text};
+use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::settings::save;
+use crate::theme::palette;
+use crate::widgets::icon;
 
 #[derive(Debug, Clone)]
 pub enum Message {
     ThemeChanged(String),
     AccentChanged(String),
+    DensityChanged(String),
     ConcurrencyChanged(u32),
     LibraryViewChanged(String),
+    /// Cambio de sección ("Apariencia" | "Lector").
+    SectionChanged(String),
 }
 
 /// Reducer del feature Settings. Muta `state.settings` y persiste de
@@ -24,8 +28,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::ThemeChanged(t) => state.settings.theme = t,
         Message::AccentChanged(a) => state.settings.accent = a,
+        Message::DensityChanged(d) => state.settings.library_view = d,
         Message::ConcurrencyChanged(n) => state.settings.download_concurrency = n,
         Message::LibraryViewChanged(v) => state.settings.library_view = v,
+        Message::SectionChanged(_) => {}
     }
     if let Err(e) = save(&state.settings) {
         state.error = Some(format!("No se pudo guardar la configuración: {e}"));
@@ -33,42 +39,80 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     Task::none()
 }
 
-/// Vista del feature: filas etiqueta + control para cada ajuste.
+/// Vista: row de dos columnas — sub-nav + panel.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    let theme = pick_list(
-        vec![
-            "dark".to_string(),
-            "light".to_string(),
-            "system".to_string(),
-        ],
-        Some(state.settings.theme.clone()),
-        |t| AppMessage::Settings(Message::ThemeChanged(t)),
-    );
+    // Sub-nav izquierda.
+    let apariencia = text("Apariencia").size(14).color(palette::ACCENT);
+    let lector = text("Lector").size(14).color(palette::TEXT_MUTED);
+    let subnav = column![apariencia, lector].spacing(16).padding(iced::Padding::new(8.0));
 
-    let accent = text_input("#7c5cbf", &state.settings.accent)
-        .on_input(|a| AppMessage::Settings(Message::AccentChanged(a)));
+    // Previsualización: card con placeholders de portada.
+    let preview_covers = (0..4)
+        .map(|_| {
+            container(icon::glyph(icon::IMAGE, 28, palette::TEXT_DIM))
+                .width(Length::Fixed(60.0))
+                .height(Length::Fixed(90.0))
+                .center_x(Length::Fill)
+                .center_y(Length::Fill)
+                .style(crate::theme::card_container)
+                .into()
+        })
+        .collect::<Vec<Element<'_, AppMessage>>>();
+    let preview = container(
+        column![
+            text("Previsualización").size(14).color(palette::TEXT),
+            iced::widget::Row::with_children(preview_covers).spacing(12),
+        ]
+        .spacing(12)
+        .padding(16),
+    )
+    .style(crate::theme::card_container)
+    .width(Length::Fill);
 
-    // Entrada numérica: el parse fallido (p.ej. campo vacío a medio editar)
-    // no muta nada — se ignora con `ErrorDismissed` como no-op.
-    let concurrency = text_input("2", &state.settings.download_concurrency.to_string())
-        .on_input(|s| match s.parse::<u32>() {
-            Ok(n) => AppMessage::Settings(Message::ConcurrencyChanged(n)),
-            Err(_) => AppMessage::ErrorDismissed,
-        });
+    let tema = pick_list(
+        vec!["SYSTEM".to_string(), "DARK".to_string(), "LIGHT".to_string()],
+        Some(state.settings.theme.to_uppercase()),
+        |t| AppMessage::Settings(Message::ThemeChanged(t.to_lowercase())),
+    )
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fill);
 
-    let library_view = pick_list(
-        vec!["grid".to_string(), "list".to_string()],
-        Some(state.settings.library_view.clone()),
-        |v| AppMessage::Settings(Message::LibraryViewChanged(v)),
-    );
+    let acento = pick_list(
+        vec!["TERRACOTTA".to_string()],
+        Some("TERRACOTTA".to_string()),
+        |a| AppMessage::Settings(Message::AccentChanged(a)),
+    )
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fill);
+
+    let densidad = pick_list(
+        vec!["COMFORTABLE".to_string(), "COMPACT".to_string()],
+        Some("COMFORTABLE".to_string()),
+        |d| AppMessage::Settings(Message::DensityChanged(d)),
+    )
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fill);
+
+    let panel = column![
+        preview,
+        text("Tema").size(14).color(palette::TEXT),
+        tema,
+        text("Color de Acento").size(14).color(palette::TEXT),
+        acento,
+        text("Densidad de Portadas").size(14).color(palette::TEXT),
+        densidad,
+    ]
+    .spacing(10)
+    .padding(iced::Padding::new(16.0))
+    .width(Length::Fill);
 
     column![
-        text("Ajustes").size(24),
-        row![text("Tema").width(180), theme].spacing(8),
-        row![text("Color de acento (hex)").width(180), accent].spacing(8),
-        row![text("Descargas concurrentes").width(180), concurrency].spacing(8),
-        row![text("Vista de biblioteca").width(180), library_view].spacing(8),
+        text("Ajustes").size(22).color(palette::TEXT),
+        row![subnav, panel].spacing(24),
     ]
-    .spacing(8)
+    .spacing(16)
     .into()
 }

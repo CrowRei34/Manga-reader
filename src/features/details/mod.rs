@@ -1,16 +1,15 @@
-//! Pantalla de Detalle (Details). Recibe un `MangaRef` (source+url+title) —
-//! normalmente desde browse/home/library al tocar una manga — y pide al
-//! daemon los detalles completos (`MangaSourceApi::manga_details`) que
-//! incluyen `description` y `chapters`. El resultado aterriza como
-//! `AppMessage::DetailsFetched(Result<Manga, DaemonError>)`, que el reducer
-//! global reenvía aquí como `Message::Fetched(...)`.
+//! Pantalla de Detalle (Details) — réplica visual del diseño original:
 //!
-//! `Fetched(Ok(m))` además persiste el manga en la DB (`manga_dao::upsert`,
-//! `library=0` por defecto) vía `db_blocking` para no bloquear el runtime
-//! async. `AddToLibrary` hace `upsert` + `set_library_flag(id, true)` y luego
-//! dispara `Library(Load)` para refrescar la pantalla de biblioteca.
-use iced::widget::{button, column, scrollable, text};
-use iced::{Element, Task};
+//! ```text
+//! ‹ Atrás
+//! [cover]  Título (grande) | autor | SINOPSIS | descripción…
+//!          [▶ Leer Ahora] [🔖 En Biblioteca]
+//! Capítulos (N)                                  ⭳ Descargar Todo
+//!   Capítulo 1                              ✓    Ver
+//!   …
+//! ```
+use iced::widget::{button, column, container, image, row, scrollable, text, Column};
+use iced::{ContentFit, Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::daemon::api::MangaSourceApi;
@@ -21,12 +20,17 @@ use crate::core::models::{Chapter, Manga, MangaRef};
 use crate::features::library;
 use crate::features::reader;
 use crate::features::Screen;
+use crate::theme::palette;
+use crate::widgets::cover::{COVER_H, COVER_W};
+use crate::widgets::icon;
 
 #[derive(Debug, Default)]
 pub struct State {
     pub manga: Option<Manga>,
     pub chapters: Vec<Chapter>,
     pub loading: bool,
+    /// Pantalla desde la que se abrió el detalle (para el botón Atrás).
+    pub back_target: Option<Screen>,
 }
 
 #[derive(Debug, Clone)]
@@ -35,6 +39,10 @@ pub enum Message {
     Fetched(Result<Manga, DaemonError>),
     ChapterSelected(Chapter),
     AddToLibrary,
+    ReadNow,
+    DownloadChapter(Chapter),
+    DownloadAll,
+    Back,
 }
 
 /// Reducer del feature Details. Muta `state.details` y devuelve
@@ -46,6 +54,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.loading = true;
             state.details.manga = None;
             state.details.chapters.clear();
+            // Guarda la pantalla origen para "Atrás".
+            if state.screen != Screen::Details {
+                state.details.back_target = Some(state.screen.clone());
+            }
             state.screen = Screen::Details;
             let d = state.daemon.clone();
             let src = mref.source.clone();
@@ -68,11 +80,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.chapters = manga.chapters.clone();
             state.details.manga = Some(manga.clone());
             state.details.loading = false;
+            // Trae la portada grande si falta.
+            let cover_task = {
+                let list = vec![manga.clone()];
+                crate::widgets::cover::fetch_covers(state, &list)
+            };
             // Persiste en DB (background) — `upsert` con `library=0` para
             // no pisar el flag si ya estaba en biblioteca.
             let dbh = state.db.clone();
-            if let Some(db) = dbh {
-                return Task::perform(
+            let persist = if let Some(db) = dbh {
+                Task::perform(
                     db::db_blocking(db, move |conn| {
                         manga_dao::upsert(conn, &manga, 0)?;
                         Ok::<(), DbError>(())
@@ -81,9 +98,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                         Ok(_) => AppMessage::ErrorDismissed,
                         Err(e) => AppMessage::LibraryLoaded(Err(e)),
                     },
-                );
-            }
-            Task::none()
+                )
+            } else {
+                Task::none()
+            };
+            Task::batch([cover_task, persist])
         }
         Message::Fetched(Err(e)) => {
             state.error = Some(e.to_string());
@@ -91,12 +110,23 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::ChapterSelected(c) => {
-            // Dispara `Reader(Load(c))` (que abre el capítulo) y
-            // `NavigateTo(Screen::Reader)` en paralelo vía `Task::batch`.
             Task::batch([
                 Task::done(AppMessage::Reader(reader::Message::Load(c))),
                 Task::done(AppMessage::NavigateTo(Screen::Reader)),
             ])
+        }
+        Message::ReadNow => {
+            // Abre el primer capítulo (menor número).
+            let first = state
+                .details
+                .chapters
+                .iter()
+                .min_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal))
+                .cloned();
+            match first {
+                Some(c) => update(state, Message::ChapterSelected(c)),
+                None => Task::none(),
+            }
         }
         Message::AddToLibrary => {
             let m_opt = state.details.manga.clone();
@@ -116,39 +146,169 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
             Task::none()
         }
+        Message::DownloadChapter(c) => {
+            // Encola un capítulo suelto en el DownloadManager.
+            if let (Some(mgr), Some(m)) = (state.downloads.clone(), state.details.manga.clone()) {
+                let _ = mgr.enqueue(&m, &c);
+            }
+            Task::none()
+        }
+        Message::DownloadAll => {
+            if let (Some(mgr), Some(m)) = (state.downloads.clone(), state.details.manga.clone()) {
+                for c in &state.details.chapters {
+                    let _ = mgr.enqueue(&m, c);
+                }
+            }
+            Task::none()
+        }
+        Message::Back => {
+            let target = state.details.back_target.clone().unwrap_or(Screen::Home);
+            Task::done(AppMessage::NavigateTo(target))
+        }
     }
 }
 
-/// Vista del feature: header (título + descripción) + botón "Agregar a
-/// biblioteca" + lista scrollable de capítulos. Mientras carga (`loading`
-/// y sin manga aún) muestra placeholder "Cargando…".
+/// Vista del feature (réplica del diseño).
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
+    let back = button(
+        row![
+            icon::glyph(icon::BACK, 16, palette::TEXT_MUTED),
+            text("Atrás").size(14).color(palette::TEXT_MUTED),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center),
+    )
+    .on_press(AppMessage::Details(Message::Back))
+    .style(crate::theme::link_button)
+    .padding(4);
+
     if state.details.loading && state.details.manga.is_none() {
-        return column![text("Cargando…").size(16)].spacing(8).into();
+        return column![back, text("Cargando…").size(16).color(palette::TEXT_MUTED)]
+            .spacing(16)
+            .into();
     }
     let Some(m) = &state.details.manga else {
-        return column![text("Sin datos").size(16)].spacing(8).into();
+        return column![back, text("Sin datos").size(16).color(palette::TEXT_MUTED)]
+            .spacing(16)
+            .into();
     };
-    let title = text(&m.title).size(28);
-    let description = match &m.description {
-        Some(d) if !d.is_empty() => text(d),
-        _ => text("Sin descripción"),
-    };
-    let header = column![title, description].spacing(4);
 
-    let chapters = column(state.details.chapters.iter().map(|c| {
-        button(text(&c.title))
-            .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+    // Cover grande (2× la card).
+    let cover: Element<'_, AppMessage> = match m
+        .cover_url
+        .as_ref()
+        .and_then(|u| state.covers.get(u))
+    {
+        Some(path) => image(image::Handle::from_path(path.clone()))
+            .width(Length::Fixed(COVER_W * 1.4))
+            .height(Length::Fixed(COVER_H * 1.4))
+            .content_fit(ContentFit::Cover)
+            .into(),
+        None => container(icon::glyph(icon::IMAGE, 56, palette::TEXT_DIM))
+            .width(Length::Fixed(COVER_W * 1.4))
+            .height(Length::Fixed(COVER_H * 1.4))
+            .center_x(Length::Fill)
+            .center_y(Length::Fill)
+            .style(crate::theme::card_container)
+            .into(),
+    };
+
+    let title_block = column![
+        text(m.title.clone()).size(26).color(palette::TEXT),
+        text(m.authors.first().cloned().unwrap_or_default())
+            .size(14)
+            .color(palette::TEXT_MUTED),
+        text("Sinopsis").size(15).color(palette::ACCENT),
+        scrollable(
+            text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
+                .size(13)
+                .color(palette::TEXT_MUTED),
+        )
+        .height(Length::Fixed(140.0)),
+    ]
+    .spacing(8);
+
+    let buttons_row = row![
+        button(
+            row![
+                icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
+                text("Leer Ahora").size(14).color(palette::ON_ACCENT),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(AppMessage::Details(Message::ReadNow))
+        .style(crate::theme::primary_button)
+        .padding([10, 18]),
+        button(
+            row![
+                icon::glyph(icon::BOOKMARK, 16, palette::ACCENT),
+                text("En Biblioteca").size(14).color(palette::ACCENT),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(AppMessage::Details(Message::AddToLibrary))
+        .style(crate::theme::ghost_button)
+        .padding([10, 18]),
+    ]
+    .spacing(12);
+
+    let header_row = row![cover, column![title_block, buttons_row].spacing(12)].spacing(20);
+
+    // Lista de capítulos ordenada ascendente.
+    let mut chapters = state.details.chapters.clone();
+    chapters.sort_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal));
+    let chapter_rows: Vec<Element<'_, AppMessage>> = chapters
+        .iter()
+        .map(|c| {
+            let status_icon = if c.read {
+                icon::glyph(icon::CHECK, 18, palette::SUCCESS)
+            } else {
+                icon::glyph(icon::DOWNLOAD_FOR_OFFLINE, 18, palette::TEXT_MUTED)
+            };
+            row![
+                text(c.title.clone()).size(14).color(palette::TEXT).width(Length::Fill),
+                button(status_icon)
+                    .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
+                    .style(crate::theme::link_button)
+                    .padding(4),
+                button(text("Ver").size(13).color(palette::TEXT_MUTED))
+                    .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+                    .style(crate::theme::link_button)
+                    .padding(4),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
             .into()
-    }))
-    .spacing(4);
+        })
+        .collect();
+
+    let chapters_header = row![
+        text(format!("Capítulos ({})", chapters.len()))
+            .size(18)
+            .color(palette::TEXT),
+        iced::widget::horizontal_space(),
+        button(
+            row![
+                icon::glyph(icon::DOWNLOAD, 16, palette::ACCENT),
+                text("Descargar Todo").size(13).color(palette::ACCENT),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(AppMessage::Details(Message::DownloadAll))
+        .style(crate::theme::link_button_accent)
+        .padding(4),
+    ]
+    .align_y(iced::Alignment::Center);
 
     column![
-        header,
-        button(text("Agregar a biblioteca"))
-            .on_press(AppMessage::Details(Message::AddToLibrary)),
-        scrollable(chapters),
+        back,
+        header_row,
+        chapters_header,
+        scrollable(Column::with_children(chapter_rows).spacing(2)),
     ]
-    .spacing(8)
+    .spacing(16)
     .into()
 }

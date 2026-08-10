@@ -58,6 +58,7 @@ pub struct Inner {
     rt: Runtime,
 }
 
+#[derive(Clone)]
 pub struct DownloadManager {
     inner: Arc<Inner>,
     tx: broadcast::Sender<DownloadEvent>,

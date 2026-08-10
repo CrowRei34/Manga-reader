@@ -4,7 +4,11 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
-/// Cache de imágenes en disco (`$XDG_CACHE_HOME/bakeneko/<sha256>.img`).
+/// Cache de imágenes en disco (`$XDG_CACHE_HOME/bakeneko/<sha256>.<ext>`).
+/// La extensión es REAL (sniffing de magic bytes, fallback a la ext de la
+/// URL): iced deduce el formato del `Handle::from_path` por extensión, así
+/// que un `.img` genérico no decodifica nunca — bug raíz del lector vacío.
+///
 /// `get` descarga la primera vez y sirve el path cacheado después; `get_handle`
 /// devuelve un `Handle` de iced listo para dibujar.
 
@@ -21,11 +25,46 @@ impl ImageCache {
         }
     }
 
-    pub fn cached_path(&self, url: &str) -> PathBuf {
+    fn stem(url: &str) -> String {
         let mut hasher = Sha256::new();
         hasher.update(url.as_bytes());
-        let hex: String = hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect();
-        self.root.join(format!("{hex}.img"))
+        hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    }
+
+    /// Extensión desde la URL (sin query), si parece imagen.
+    fn url_ext(url: &str) -> Option<&'static str> {
+        let path = url.split(['?', '#']).next()?;
+        let ext = path.rsplit('.').next()?;
+        match ext.to_ascii_lowercase().as_str() {
+            "jpg" | "jpeg" => Some("jpg"),
+            "png" => Some("png"),
+            "webp" => Some("webp"),
+            "gif" => Some("gif"),
+            _ => None,
+        }
+    }
+
+    /// Sniffing de magic bytes para extensión real.
+    fn sniff_ext(bytes: &[u8]) -> Option<&'static str> {
+        if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some("jpg"); }
+        if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { return Some("png"); }
+        if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" { return Some("webp"); }
+        if bytes.starts_with(b"GIF8") { return Some("gif"); }
+        None
+    }
+
+    pub fn cached_path(&self, url: &str) -> PathBuf {
+        let stem = Self::stem(url);
+        // Cache hit con cualquier extensión conocida.
+        for ext in ["jpg", "png", "webp", "gif"] {
+            let p = self.root.join(format!("{stem}.{ext}"));
+            if p.exists() {
+                return p;
+            }
+        }
+        // Todavía no existe: hint de la URL o .jpg.
+        let ext = Self::url_ext(url).unwrap_or("jpg");
+        self.root.join(format!("{stem}.{ext}"))
     }
 
     pub async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<PathBuf, NetError> {
@@ -43,8 +82,14 @@ impl ImageCache {
         }
         let bytes = resp.bytes().await?;
         std::fs::create_dir_all(&self.root)?;
-        std::fs::write(&path, bytes)?;
-        Ok(path)
+        // Guarda con la extensión real (sniff > URL > jpg) para que iced
+        // decodifique por extensión.
+        let ext = Self::sniff_ext(&bytes)
+            .or_else(|| Self::url_ext(url))
+            .unwrap_or("jpg");
+        let final_path = self.root.join(format!("{}.{ext}", Self::stem(url)));
+        std::fs::write(&final_path, bytes)?;
+        Ok(final_path)
     }
 
     /// Descarga (o reusa de caché) la imagen de `url` y devuelve un

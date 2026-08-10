@@ -20,7 +20,7 @@
 //! estén cacheadas cuando el usuario navegue. El resultado aterriza como
 //! `Message::ImageReady { url, path }`, que guarda el path en
 //! `state.reader.image_path` y la vista lo pinta con `Handle::from_path`.
-use iced::widget::{button, column, horizontal_space, image, row, scrollable, text};
+use iced::widget::{button, column, container, horizontal_space, image, row, text};
 use iced::{Element, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -28,6 +28,7 @@ use crate::core::daemon::api::MangaSourceApi;
 use crate::core::db::dao::{history_dao, manga_dao};
 use crate::core::models::Chapter;
 use crate::core::util::now_millis;
+use crate::theme::palette;
 use std::collections::HashMap;
 use std::path::PathBuf;
 
@@ -254,22 +255,32 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 }
 
 /// Vista del feature: imagen real de la página actual (cacheada por
-/// `ImageCache`), placeholder mientras descarga, contador `actual / total`
-/// y botones de navegación `‹`/`›`.
+/// `ImageCache`), placeholder mientras descarga, barra de navegación
+/// inferior con `‹` / contador / `›`.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     if state.reader.loading || state.reader.pages.is_empty() {
-        return column![text("Cargando…").size(16)].spacing(8).into();
+        return column![text("Cargando…").size(16).color(palette::TEXT_MUTED)]
+            .spacing(8)
+            .into();
     }
 
     // Imagen real: si `ImageCache` ya la dejó en disco, la pintamos con
     // `Handle::from_path`; si no, placeholder hasta que aterrice `ImageReady`.
     let page_view: Element<'_, AppMessage> = match &state.reader.image_path {
-        Some(path) => image(iced::widget::image::Handle::from_path(path.clone()))
+        Some(path) => container(
+            image(iced::widget::image::Handle::from_path(path.clone()))
+                .content_fit(iced::ContentFit::Contain),
+        )
+        .width(iced::Length::Fill)
+        .height(iced::Length::Fill)
+        .center_x(iced::Length::Fill)
+        .center_y(iced::Length::Fill)
+        .into(),
+        None => container(text("Descargando imagen…").size(14).color(palette::TEXT_MUTED))
             .width(iced::Length::Fill)
             .height(iced::Length::Fill)
-            .into(),
-        None => scrollable(text("Descargando imagen…").size(14))
-            .height(iced::Length::Fill)
+            .center_x(iced::Length::Fill)
+            .center_y(iced::Length::Fill)
             .into(),
     };
 
@@ -277,16 +288,28 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         "{} / {}",
         state.reader.current + 1,
         state.reader.pages.len()
-    ));
+    ))
+    .size(13)
+    .color(palette::TEXT_MUTED);
 
-    let nav = row![
-        button(text("‹")).on_press(AppMessage::Reader(Message::Prev)),
-        horizontal_space(),
-        counter,
-        horizontal_space(),
-        button(text("›")).on_press(AppMessage::Reader(Message::Next)),
-    ]
-    .spacing(8);
+    let nav = container(
+        row![
+            button(text("‹").size(20).color(palette::TEXT))
+                .on_press(AppMessage::Reader(Message::Prev))
+                .style(crate::theme::ghost_button)
+                .padding([6, 16]),
+            horizontal_space(),
+            counter,
+            horizontal_space(),
+            button(text("›").size(20).color(palette::TEXT))
+                .on_press(AppMessage::Reader(Message::Next))
+                .style(crate::theme::ghost_button)
+                .padding([6, 16]),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center),
+    )
+    .padding(8);
 
-    column![page_view, nav].spacing(8).into()
+    column![page_view, nav].into()
 }

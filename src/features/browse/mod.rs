@@ -5,13 +5,16 @@
 //! Las `Task` devueltas llaman `MangaSourceApi::catalog_list` contra el
 //! `DaemonClient` (`Arc<DaemonClient>`) que vive en `AppState`. Los
 //! resultados aterrizan en el reducer global como `Message::CatalogListed`.
-use iced::widget::{button, column, row, scrollable, text, text_input};
-use iced::{Element, Task};
+use iced::widget::{button, column, pick_list, row, scrollable, text, text_input};
+use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::daemon::api::MangaSourceApi;
 use crate::core::models::{Manga, MangaRef};
 use crate::features::details;
+use crate::theme::palette;
+use crate::widgets::cover::cover_grid;
+use crate::widgets::icon;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -25,6 +28,7 @@ pub struct State {
 #[derive(Debug, Clone)]
 pub enum Message {
     SourceSelected(String),
+    SourceSelectedByName(String),
     Refresh,
     QueryChanged(String),
     More,
@@ -49,6 +53,17 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 )
             } else {
                 Task::none()
+            }
+        }
+        Message::SourceSelectedByName(name) => {
+            let id = state
+                .sources
+                .iter()
+                .find(|s| s.name == name)
+                .map(|s| s.id.clone());
+            match id {
+                Some(id) => update(state, Message::SourceSelected(id)),
+                None => Task::none(),
             }
         }
         Message::Refresh => {
@@ -88,60 +103,77 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     }
 }
 
-/// Vista del feature: row de fuentes + caja de búsqueda + lista scrollable +
-/// botón "Más". Cada manga lanza `Details(Message::Load(MangaRef{..}))` que
-/// dispara el fetch contra el daemon + enruta a la pantalla de detalle.
+/// Vista del feature (réplica del diseño original): header con ícono +
+/// título "Explorar" + dropdown de fuentes (1356 — el `pick_list` scrollea)
+/// + búsqueda + botón "Buscar" terracota; grid scrollable de cover cards.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    // Fuentes: botón por cada source; el activo se marca con "✓" y se deshabilita.
-    let source_row = row(
-        state.sources.clone().into_iter().map(|s| {
-            let is_sel = Some(&s.id) == state.browse.source.as_ref();
-            let label = if is_sel {
-                format!("{} ✓", s.name)
-            } else {
-                s.name.clone()
-            };
-            let btn = button(text(label));
-            if is_sel {
-                btn.into()
-            } else {
-                btn.on_press(AppMessage::Browse(Message::SourceSelected(s.id)))
-                    .into()
-            }
-        }),
-    )
-    .spacing(8);
+    // Header: ícono + título + dropdown fuente + input búsqueda + botón.
+    // Las fuentes deshabilitadas en Extensiones no se ofrecen aquí.
+    let names: Vec<String> = state
+        .sources
+        .iter()
+        .filter(|s| !state.extensions.disabled.contains(&s.id))
+        .map(|s| s.name.clone())
+        .collect();
+    let selected_name: Option<String> = state.browse.source.as_ref().and_then(|id| {
+        state
+            .sources
+            .iter()
+            .find(|s| &s.id == id)
+            .map(|s| s.name.clone())
+    });
+    let picker = pick_list(names, selected_name, |name| {
+        AppMessage::Browse(Message::SourceSelectedByName(name))
+    })
+    .placeholder("Fuente…")
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fixed(180.0));
 
-    // Buscador: typing → QueryChanged (sin fetch); Enter o "Buscar" → Refresh.
     let search = text_input(
-        "Buscar…",
+        "Buscar manga…",
         state.browse.query.as_deref().unwrap_or(""),
     )
     .on_input(|q| AppMessage::Browse(Message::QueryChanged(q)))
-    .on_submit(AppMessage::Browse(Message::Refresh));
-    let search_row = row![
+    .on_submit(AppMessage::Browse(Message::Refresh))
+    .style(crate::theme::search_input)
+    .padding([8, 12]);
+
+    let buscar_btn = button(text("Buscar").size(14))
+        .on_press(AppMessage::Browse(Message::Refresh))
+        .style(crate::theme::primary_button)
+        .padding([8, 20]);
+
+    let header = row![
+        icon::glyph(icon::EXPLORE, 20, palette::ACCENT),
+        text("Explorar").size(22).color(palette::TEXT),
+        picker,
         search,
-        button(text("Buscar")).on_press(AppMessage::Browse(Message::Refresh)),
+        buscar_btn,
     ]
-    .spacing(8);
+    .spacing(12)
+    .align_y(iced::Alignment::Center);
 
-    // Lista de mangas: click → Details(Message::Load(MangaRef{..})) que
-    // dispara el fetch contra el daemon + enruta a la pantalla de detalle.
-    let list_col = column(state.browse.list.iter().map(|m| {
-        button(text(&m.title))
-            .on_press(AppMessage::Details(details::Message::Load(MangaRef {
-                source: m.source.clone(),
-                url: m.url.clone(),
-                title: m.title.clone(),
-            })))
-            .into()
-    }))
-    .spacing(4);
+    // Grid de portadas (título + autor).
+    let grid = cover_grid(&state.browse.list, &state.covers, 5, |m| {
+        AppMessage::Details(details::Message::Load(MangaRef {
+            source: m.source.clone(),
+            url: m.url.clone(),
+            title: m.title.clone(),
+        }))
+    });
 
-    let mut col = column![source_row, search_row, scrollable(list_col)];
+    let mut col = column![header, scrollable(grid)];
     if state.browse.loading {
-        col = col.push(text("Cargando…"));
+        col = col.push(text("Cargando…").size(14).color(palette::TEXT_MUTED));
     }
-    col = col.push(button(text("Más")).on_press(AppMessage::Browse(Message::More)));
-    col.spacing(8).into()
+    if !state.browse.list.is_empty() {
+        col = col.push(
+            button(text("Más").size(14))
+                .on_press(AppMessage::Browse(Message::More))
+                .style(crate::theme::ghost_button)
+                .padding([8, 20]),
+        );
+    }
+    col.spacing(16).into()
 }

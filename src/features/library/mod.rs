@@ -1,101 +1,133 @@
-//! Pantalla de Biblioteca (Library). Lista las mangas marcadas como
-//! `library=1` en la tabla `manga` (vía `manga_dao::list_library`); la
-//! lectura corre en `tokio::task::spawn_blocking` (helper `db_blocking`)
-//! porque `rusqlite::Connection` no es `Sync` y bloquea el hilo del runtime
-//! async de Iced. El resultado aterriza en el reducer global como
-//! `Message::LibraryLoaded(Result<Vec<Manga>, DbError>)`.
-use iced::widget::{button, column, scrollable, text};
+//! Pantalla de Biblioteca (Library). Réplica del diseño original:
+//! - Título "Biblioteca" + ícono de filtro
+//! - Fila de chips de categorías ("Todas" activa + categorías + "+ Nueva")
+//! - Grid scrollable de cover cards
+use iced::widget::{button, column, row, scrollable, text, Row};
 use iced::{Element, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::db;
-use crate::core::db::dao::manga_dao;
-use crate::core::models::{Manga, MangaRef};
+use crate::core::db::dao::{category_dao, manga_dao};
+use crate::core::error::DbError;
+use crate::core::models::{Category, MangaRef};
 use crate::features::details;
+use crate::theme::palette;
+use crate::widgets::cover::cover_grid;
+use crate::widgets::icon;
 
 #[derive(Debug, Default)]
 pub struct State {
+    /// `None` = "Todas".
     pub category_filter: Option<i64>,
+    pub categories: Vec<Category>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Load,
-    /// Filtro por categoría; la vista aún no expone el selector.
-    #[allow(dead_code)]
-    CategoryFilter(i64),
+    CategoryFilter(Option<i64>),
+    CategoriesLoaded(Result<Vec<Category>, DbError>),
 }
 
-/// Reducer del feature Library. `Load` dispara la consulta DAO vía
-/// `db_blocking` (que internally usa `spawn_blocking` + `Arc<Mutex<Connection>>`).
-/// El `Result` regresa como `AppMessage::LibraryLoaded` y se resuelve en
-/// `app::update` (muta `state.library`), no aquí — el reducer de library
-/// sólo dispara el efecto.
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::Load => {
             let dbh = state.db.clone();
             if let Some(db) = dbh {
                 let category = state.library_state.category_filter;
-                Task::perform(
-                    db::db_blocking(db, move |conn| {
-                        let mut all = manga_dao::list_library(conn)?;
-                        if let Some(cat) = category {
-                            // Filtro por categoría en memoria: el schema
-                            // actual no modela la vinculación directamente en
-                            // `manga`, así que el filtro se aplica aquí para
-                            // no acoplar features/library a la layer de DAO.
-                            all.retain(|m| {
-                                m.blob.get("category").and_then(|v| v.as_i64()) == Some(cat)
-                            });
-                        }
-                        Ok(all)
-                    }),
-                    AppMessage::LibraryLoaded,
-                )
+                Task::batch([
+                    Task::perform(
+                        db::db_blocking(db.clone(), move |conn| {
+                            let mut all = manga_dao::list_library(conn)?;
+                            if let Some(cat) = category {
+                                all.retain(|m| {
+                                    m.blob.get("category").and_then(|v| v.as_i64()) == Some(cat)
+                                });
+                            }
+                            Ok(all)
+                        }),
+                        AppMessage::LibraryLoaded,
+                    ),
+                    Task::perform(
+                        db::db_blocking(db, |conn| category_dao::list(conn)),
+                        |r| AppMessage::Library(Message::CategoriesLoaded(r)),
+                    ),
+                ])
             } else {
                 Task::none()
             }
         }
         Message::CategoryFilter(c) => {
-            state.library_state.category_filter = Some(c);
-            // Re-aplica el filtro en memoria sin re-levar la DB: la lista
-            // completa ya vive en `state.library`.
+            state.library_state.category_filter = c;
+            update(state, Message::Load)
+        }
+        Message::CategoriesLoaded(Ok(cats)) => {
+            state.library_state.categories = cats;
+            Task::none()
+        }
+        Message::CategoriesLoaded(Err(e)) => {
+            state.error = Some(e.to_string());
             Task::none()
         }
     }
 }
 
-/// Vista del feature: lista scrollable de mangas de la biblioteca (espejo de
-/// `state.library`, no del sub-estado `library_state.list`, porque el reducer
-/// global escribe directamente sobre el `Vec<Manga>` de `AppState`). Tocar un
-/// manga lanza `Details(Message::Load(MangaRef{..}))` que enruta a la pantalla
-/// de detalle con la fuente+manga concretas.
+/// Vista: título + chips + grid de portadas.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    if state.library.is_empty() {
-        return column![text("Biblioteca vacía").size(16)].spacing(8).into();
-    }
-    let list_col = column(state.library.iter().map(|m| {
-        button(text(&m.title))
-            .on_press(AppMessage::Details(details_load(m)))
-            .into()
-    }))
-    .spacing(4);
-    column![
-        text("Biblioteca").size(24),
-        scrollable(list_col),
-        button(text("Recargar")).on_press(AppMessage::Library(Message::Load)),
+    let title_row = row![
+        text("Biblioteca").size(22).color(palette::TEXT),
+        iced::widget::horizontal_space(),
+        button(icon::glyph(icon::FILTER, 18, palette::TEXT_MUTED))
+            .style(crate::theme::link_button)
+            .padding(6),
     ]
-    .spacing(8)
-    .into()
-}
+    .align_y(iced::Alignment::Center);
 
-/// Construye `details::Message::Load(MangaRef{..})` a partir de un manga.
-/// Aislado en helper porque lo reutilizan browse/home y library.
-fn details_load(m: &Manga) -> details::Message {
-    details::Message::Load(MangaRef {
-        source: m.source.clone(),
-        url: m.url.clone(),
-        title: m.title.clone(),
-    })
+    // Chips: "Todas" + categorías existentes + "+ Nueva".
+    let mut chips: Vec<Element<'_, AppMessage>> = vec![
+        button(text("Todas").size(13))
+            .on_press(AppMessage::Library(Message::CategoryFilter(None)))
+            .style(crate::theme::chip_button(state.library_state.category_filter.is_none()))
+            .padding([6, 14])
+            .into(),
+    ];
+    for cat in &state.library_state.categories {
+        let selected = state.library_state.category_filter == cat.id;
+        chips.push(
+            button(text(cat.name.clone()).size(13))
+                .on_press(AppMessage::Library(Message::CategoryFilter(cat.id)))
+                .style(crate::theme::chip_button(selected))
+                .padding([6, 14])
+                .into(),
+        );
+    }
+    chips.push(
+        button(text("+ Nueva").size(13))
+            .style(crate::theme::ghost_button)
+            .padding([6, 14])
+            .into(),
+    );
+    let chips_row = Row::with_children(chips).spacing(8);
+
+    let grid = if state.library.is_empty() {
+        column![
+            text("Tu biblioteca está vacía").size(16).color(palette::TEXT_MUTED),
+            text("Agrega mangas desde Explorar para verlos aquí.")
+                .size(13)
+                .color(palette::TEXT_DIM),
+        ]
+        .spacing(8)
+    } else {
+        column![cover_grid(&state.library, &state.covers, 5, |m| {
+            AppMessage::Details(details::Message::Load(MangaRef {
+                source: m.source.clone(),
+                url: m.url.clone(),
+                title: m.title.clone(),
+            }))
+        })]
+    };
+
+    column![title_row, chips_row, scrollable(grid)]
+        .spacing(16)
+        .into()
 }

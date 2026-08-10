@@ -2,6 +2,7 @@ mod app;
 mod core;
 mod features;
 mod theme;
+mod widgets;
 
 use std::sync::Arc;
 use std::time::Duration;
@@ -14,6 +15,9 @@ use core::daemon::client::DaemonClient;
 use core::settings;
 use core::xdg::Xdg;
 
+/// Fuente de íconos Material (sidebar, botones, estados).
+pub static ICON_FONT_BYTES: &[u8] = include_bytes!("../assets/MaterialIcons.ttf");
+
 /// Binario bakeneko. iced 0.13 cambió `Application` (trait, estilo 0.12) por
 /// un builder deApplication> con `iced::application(title, update, view)`.
 /// El reducer y la vista viven en `app::update` / `app::view` (standalone
@@ -25,9 +29,10 @@ fn main() -> iced::Result {
         eprintln!("XDG dirs: {e:?}");
     }
 
-    iced::application("Bakeneko Reader", app::update, app::view)
+    iced::application("bakeneko", app::update, app::view)
         .theme(|state| theme::iced_theme(&state.settings))
         .subscription(app::subscription)
+        .font(ICON_FONT_BYTES)
         .run_with(init_state)
 }
 

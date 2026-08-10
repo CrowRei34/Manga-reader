@@ -9,8 +9,8 @@
 //! state, total, done)`), así que al cargar se enriquece con los títulos de
 //! capítulo desde `chapter_dao::list_for_manga` (mismo `&mut Connection` del
 //! closure `db_blocking`, sin queries adicionales).
-use iced::widget::{button, column, progress_bar, row, scrollable, text};
-use iced::{Element, Task};
+use iced::widget::{button, column, row, scrollable, text};
+use iced::{Element, Length, Task};
 use std::collections::HashMap;
 
 use crate::app::{AppState, Message as AppMessage};
@@ -19,6 +19,8 @@ use crate::core::db::dao::{chapter_dao, download_dao};
 use crate::core::downloads::DownloadEvent;
 use crate::core::error::DbError;
 use crate::core::models::{DownloadEntry, DownloadState};
+use crate::theme::palette;
+use crate::widgets::icon;
 
 /// Resultado de la carga en background: entradas DAO + títulos de capítulo
 /// resueltos (clave `(manga_id, chapter_url)`).
@@ -152,22 +154,33 @@ fn state_label(s: DownloadState) -> &'static str {
     }
 }
 
-/// Vista del feature: tabla (título, estado, barra de progreso done/total)
-/// de la cola actual + botón "Recargar". Vacía ⇒ placeholder.
+/// Vista del feature (réplica del diseño original): header "Descargas" +
+/// ícono de pausa; filas con ícono de estado (✓ hecho, ! error, ↓ activo),
+/// título del manga + capítulo, botón ✕ para quitar de la cola.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
+    let header = row![
+        text("Descargas").size(22).color(palette::TEXT),
+        iced::widget::horizontal_space(),
+        button(icon::glyph(icon::PAUSE, 18, palette::TEXT_MUTED))
+            .style(crate::theme::link_button)
+            .padding(6),
+    ]
+    .align_y(iced::Alignment::Center);
+
     if state.downloads_state.entries.is_empty() {
         return column![
-            text("Descargas").size(24),
-            text("Sin descargas").size(16),
-            button(text("Recargar")).on_press(AppMessage::Download(Message::Load)),
+            header,
+            text("Sin descargas").size(15).color(palette::TEXT_MUTED),
+            button(text("Recargar").size(13))
+                .on_press(AppMessage::Download(Message::Load))
+                .style(crate::theme::ghost_button)
+                .padding([6, 14]),
         ]
-        .spacing(8)
+        .spacing(12)
         .into();
     }
 
     let rows = column(state.downloads_state.entries.iter().map(|e| {
-        // Título del capítulo resuelto en `Load`; fallback a la URL si el
-        // capítulo aún no se persistió (enqueue sin pasar por details).
         let title = state
             .downloads_state
             .titles
@@ -175,27 +188,36 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .cloned()
             .filter(|t| !t.is_empty())
             .unwrap_or_else(|| e.chapter_url.clone());
-        let fraction = if e.total_pages > 0 {
-            e.done_pages as f32 / e.total_pages as f32
-        } else {
-            0.0
+        let (ic, color) = match e.state {
+            DownloadState::Done => (icon::CHECK, palette::SUCCESS),
+            DownloadState::Error => (icon::ERROR, palette::DANGER),
+            DownloadState::Downloading => (icon::DOWNLOAD, palette::ACCENT),
+            DownloadState::Queued => (icon::DOWNLOAD_FOR_OFFLINE, palette::TEXT_MUTED),
+            DownloadState::Idle => (icon::DOWNLOAD_FOR_OFFLINE, palette::TEXT_DIM),
+        };
+        let subtitle = match e.state {
+            DownloadState::Downloading => {
+                format!("Descargando… {}/{}", e.done_pages, e.total_pages)
+            }
+            _ => state_label(e.state).to_string(),
         };
         row![
-            text(title),
-            text(state_label(e.state)).size(12),
-            progress_bar(0.0..=1.0, fraction).width(120),
-            text(format!("{}/{}", e.done_pages, e.total_pages)).size(12),
+            icon::glyph(ic, 18, color),
+            column![
+                text(title).size(14).color(palette::TEXT),
+                text(subtitle).size(12).color(palette::TEXT_MUTED),
+            ]
+            .spacing(2)
+            .width(Length::Fill),
+            button(icon::glyph(icon::CLOSE, 16, palette::TEXT_MUTED))
+                .style(crate::theme::link_button)
+                .padding(6),
         ]
-        .spacing(8)
+        .spacing(12)
+        .align_y(iced::Alignment::Center)
         .into()
     }))
-    .spacing(6);
+    .spacing(4);
 
-    column![
-        text("Descargas").size(24),
-        scrollable(rows),
-        button(text("Recargar")).on_press(AppMessage::Download(Message::Load)),
-    ]
-    .spacing(8)
-    .into()
+    column![header, scrollable(rows)].spacing(12).into()
 }

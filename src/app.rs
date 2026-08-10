@@ -37,6 +37,13 @@ pub struct AppState {
     pub downloads: Option<DownloadManager>,
     /// Estado de la pantalla de descargas (cola en memoria).
     pub downloads_state: downloads::State,
+    /// Estado de extensiones (query + toggles).
+    pub extensions: extensions::State,
+    /// Portadas cacheadas: `cover_url` → path en disco (vía `ImageCache`).
+    pub covers: std::collections::HashMap<String, std::path::PathBuf>,
+    /// Headers HTTP para bajar portadas (Referer etc.). Por ahora vacío;
+    /// se puede poblar con `source_headers` por fuente si hace falta.
+    pub cover_headers: std::collections::HashMap<String, String>,
 }
 
 impl Default for AppState {
@@ -58,6 +65,9 @@ impl Default for AppState {
             library: Vec::new(),
             downloads: None,
             downloads_state: downloads::State::default(),
+            extensions: extensions::State::default(),
+            covers: std::collections::HashMap::new(),
+            cover_headers: std::collections::HashMap::new(),
         }
     }
 }
@@ -83,6 +93,9 @@ pub enum Message {
     DownloadEvent(DownloadEvent),
     Download(downloads::Message),
     Settings(settings::Message),
+    Extensions(extensions::Message),
+    /// Resultado de la descarga de una portada (`cover_url` → path en disco).
+    CoverLoaded(String, Option<std::path::PathBuf>),
 }
 
 impl From<NavMsg> for Message {
@@ -113,12 +126,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
                     ));
                 }
             }
-            // dispara la carga inicial de fuentes
+            // dispara la carga inicial de fuentes + biblioteca + historial
             if let Some(d) = state.daemon.clone() {
-                return Task::perform(
-                    async move { d.list_sources().await },
-                    Message::SourcesListed,
-                );
+                return Task::batch([
+                    Task::perform(
+                        async move { d.list_sources().await },
+                        Message::SourcesListed,
+                    ),
+                    library::update(state, library::Message::Load),
+                    home::update(state, home::Message::LoadRecent),
+                ]);
             }
             Task::none()
         }
@@ -138,7 +155,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::CatalogListed(Ok(m)) => {
             state.browse.list = m;
             state.browse.loading = false;
-            Task::none()
+            // Descarga las portadas del catálogo (async, una por URL nueva).
+            let list = state.browse.list.clone();
+            crate::widgets::cover::fetch_covers(state, &list)
         }
         Message::CatalogListed(Err(e)) => {
             state.browse.loading = false;
@@ -152,12 +171,12 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::NavigateTo(s) => {
             state.screen = s.clone();
-            // Al entrar a Descargas, recarga la cola desde la DB (además de
-            // los `DownloadEvent` en vivo que la mantienen al día).
-            if s == Screen::Downloads {
-                downloads::update(state, downloads::Message::Load)
-            } else {
-                Task::none()
+            // Cargas perezosas al entrar a cada pantalla.
+            match s {
+                Screen::Downloads => downloads::update(state, downloads::Message::Load),
+                Screen::Library => library::update(state, library::Message::Load),
+                Screen::Home => home::update(state, home::Message::LoadRecent),
+                _ => Task::none(),
             }
         }
         Message::ErrorDismissed => {
@@ -169,7 +188,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Library(m) => library::update(state, m),
         Message::LibraryLoaded(Ok(list)) => {
             state.library = list;
-            Task::none()
+            let list = state.library.clone();
+            crate::widgets::cover::fetch_covers(state, &list)
         }
         Message::LibraryLoaded(Err(e)) => {
             state.error = Some(e.to_string());
@@ -196,6 +216,13 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::Download(m) => downloads::update(state, m),
         Message::Settings(m) => settings::update(state, m),
+        Message::Extensions(m) => extensions::update(state, m),
+        Message::CoverLoaded(url, path) => {
+            if let Some(p) = path {
+                state.covers.insert(url, p);
+            }
+            Task::none()
+        }
     }
 }
 
