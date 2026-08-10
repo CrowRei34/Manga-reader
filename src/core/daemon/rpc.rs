@@ -64,6 +64,6 @@ impl RpcResponse {
     }
 }
 
-#[derive(Debug, thiserror::Error)]
+#[derive(Debug, Clone, thiserror::Error)]
 #[error("RpcException({code}): {message}")]
 pub struct RpcException { pub code: i32, pub message: String }

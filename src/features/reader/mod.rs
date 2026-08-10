@@ -1,0 +1,1 @@
+// Stub de módulo — Task 15 flesh-out.

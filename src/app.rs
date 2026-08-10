@@ -1,1 +1,141 @@
-pub struct App;
+//! AppState + Message global + reducer `update` + `view` + `subscription`.
+//!
+//! El `App` (struct que implementa `iced::Application`) vive en `main.rs`
+//! y delega aquí en `app::update` / `app::view` / `app::subscription`.
+use iced::widget::{center, text};
+use iced::{Element, Subscription, Task};
+use std::sync::{Arc, Mutex};
+
+use crate::core::daemon::client::DaemonClient;
+use crate::core::daemon::api::MangaSourceApi;
+use crate::core::error::DaemonError;
+use crate::core::models::{Manga, PingReply, Source};
+use crate::core::net::ImageCache;
+use crate::core::settings::Settings;
+use crate::features::shell::NavMsg;
+use crate::features::{browse, home, Screen};
+
+/// Estado raíz de la app. Una sola `AppState` mutable a través de todos
+/// los features; los sub-estados viven embebidos (`home`, `browse`, ...).
+pub struct AppState {
+    pub screen: Screen,
+    pub error: Option<String>,
+    pub settings: Settings,
+    pub sources: Vec<Source>,
+    pub daemon_ready: bool,
+    pub daemon: Option<Arc<DaemonClient>>,
+    pub db: Option<Arc<Mutex<rusqlite::Connection>>>,
+    pub cache: Arc<ImageCache>,
+    pub home: home::State,
+    pub browse: browse::State,
+}
+
+impl Default for AppState {
+    fn default() -> Self {
+        Self {
+            screen: Screen::default(),
+            error: None,
+            settings: Settings::default(),
+            sources: Vec::new(),
+            daemon_ready: false,
+            daemon: None,
+            db: None,
+            cache: Arc::new(ImageCache::new()),
+            home: home::State::default(),
+            browse: browse::State::default(),
+        }
+    }
+}
+
+/// Mensaje global. Cada feature expone su sub-`Message` y se envuelve aquí.
+#[derive(Debug, Clone)]
+pub enum Message {
+    DaemonStarted(Result<PingReply, DaemonError>),
+    SourcesListed(Result<Vec<Source>, DaemonError>),
+    CatalogListed(Result<Vec<Manga>, DaemonError>),
+    DaemonDied,
+    NavigateTo(Screen),
+    ErrorDismissed,
+    Home(home::Message),
+    Browse(browse::Message),
+}
+
+impl From<NavMsg> for Message {
+    fn from(n: NavMsg) -> Self {
+        match n {
+            NavMsg::Navigate(s) => Message::NavigateTo(s),
+        }
+    }
+}
+
+/// Reducer global. Mutar `state` y devolver el `Task` que dispara
+/// los siguientes efectos (carga de fuentes tras ping rpc, etc.).
+pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
+    match msg {
+        Message::DaemonStarted(Ok(_)) => {
+            state.daemon_ready = true;
+            state.error = None;
+            // dispara la carga inicial de fuentes
+            if let Some(d) = state.daemon.clone() {
+                return Task::perform(
+                    async move { d.list_sources().await },
+                    Message::SourcesListed,
+                );
+            }
+            Task::none()
+        }
+        Message::DaemonStarted(Err(e)) => {
+            state.daemon_ready = false;
+            state.error = Some(e.to_string());
+            Task::none()
+        }
+        Message::SourcesListed(Ok(s)) => {
+            state.sources = s;
+            Task::none()
+        }
+        Message::SourcesListed(Err(e)) => {
+            state.error = Some(e.to_string());
+            Task::none()
+        }
+        Message::CatalogListed(Ok(m)) => {
+            state.browse.list = m;
+            Task::none()
+        }
+        Message::CatalogListed(Err(e)) => {
+            state.error = Some(e.to_string());
+            Task::none()
+        }
+        Message::DaemonDied => {
+            state.daemon_ready = false;
+            state.error = Some("Daemon cerró el socket".into());
+            Task::none()
+        }
+        Message::NavigateTo(s) => {
+            state.screen = s;
+            Task::none()
+        }
+        Message::ErrorDismissed => {
+            state.error = None;
+            Task::none()
+        }
+        Message::Home(m) => home::update(state, m),
+        Message::Browse(m) => browse::update(state, m),
+    }
+}
+
+/// Emite `Message::DaemonDied` si el socket se cierra. Para mantenerlo
+/// simple en esta fase, es una subscription vacía; se llena en Task 13.
+pub fn subscription(_state: &AppState) -> Subscription<Message> {
+    Subscription::none()
+}
+
+/// Vista raíz: elige el contenido según `screen` y lo envuelve con el
+/// nav rail del shell.
+pub fn view(state: &AppState) -> Element<'_, Message> {
+    let content: Element<Message> = match state.screen {
+        Screen::Home => home::view(state),
+        Screen::Browse => browse::view(state),
+        _ => center(text("Pantalla en construcción")).into(),
+    };
+    crate::features::shell::view(&state.screen, content)
+}
