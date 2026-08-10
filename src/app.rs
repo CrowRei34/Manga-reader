@@ -13,7 +13,7 @@ use crate::core::models::{Manga, PingReply, Source};
 use crate::core::net::ImageCache;
 use crate::core::settings::Settings;
 use crate::features::shell::NavMsg;
-use crate::features::{browse, details, home, library, Screen};
+use crate::features::{browse, details, home, library, reader, Screen};
 
 /// Estado raíz de la app. Una sola `AppState` mutable a través de todos
 /// los features; los sub-estados viven embebidos (`home`, `browse`, ...).
@@ -30,6 +30,7 @@ pub struct AppState {
     pub browse: browse::State,
     pub library_state: library::State,
     pub details: details::State,
+    pub reader: reader::State,
     pub library: Vec<Manga>,
 }
 
@@ -48,6 +49,7 @@ impl Default for AppState {
             browse: browse::State::default(),
             library_state: library::State::default(),
             details: details::State::default(),
+            reader: reader::State::default(),
             library: Vec::new(),
         }
     }
@@ -68,6 +70,8 @@ pub enum Message {
     LibraryLoaded(Result<Vec<Manga>, DbError>),
     Details(details::Message),
     DetailsFetched(Result<Manga, DaemonError>),
+    Reader(reader::Message),
+    ReaderPagesFetched(Result<Vec<crate::core::models::Page>, DaemonError>),
 }
 
 impl From<NavMsg> for Message {
@@ -143,6 +147,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::Details(m) => details::update(state, m),
         Message::DetailsFetched(r) => details::update(state, details::Message::Fetched(r)),
+        Message::Reader(m) => reader::update(state, m),
+        Message::ReaderPagesFetched(r) => {
+            reader::update(state, reader::Message::PagesFetched(r))
+        }
     }
 }
 
@@ -183,6 +191,7 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Screen::Browse => browse::view(state),
         Screen::Library => library::view(state),
         Screen::Details => details::view(state),
+        Screen::Reader => reader::view(state),
         _ => center(text("Pantalla en construcción")).into(),
     };
     crate::features::shell::view(&state.screen, content)

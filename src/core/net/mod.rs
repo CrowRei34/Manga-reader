@@ -4,6 +4,10 @@ use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
 
+/// Cache de imágenes en disco (`$XDG_CACHE_HOME/bakeneko/<sha256>.img`).
+/// `get` descarga la primera vez y sirve el path cacheado después; `get_handle`
+/// devuelve un `Handle` de iced listo para dibujar.
+
 pub struct ImageCache {
     root: PathBuf,
     client: reqwest::Client,
@@ -41,5 +45,14 @@ impl ImageCache {
         std::fs::create_dir_all(&self.root)?;
         std::fs::write(&path, bytes)?;
         Ok(path)
+    }
+
+    /// Descarga (o reusa de caché) la imagen de `url` y devuelve un
+    /// [`iced::widget::image::Handle`] listo para pintar, o `None` si la
+    /// descarga o la lectura del archivo fallan.
+    pub async fn get_handle(&self, url: &str, headers: &HashMap<String, String>) -> Option<iced::widget::image::Handle> {
+        let path = self.get(url, headers).await.ok()?;
+        let bytes = std::fs::read(path).ok()?;
+        Some(iced::widget::image::Handle::from_bytes(bytes))
     }
 }
