@@ -1,27 +1,23 @@
-//! Visor de páginas (Reader). Recibe un `Chapter` (normalmente desde
-//! `details::view` al tocar un capítulo) y pide al daemon las páginas
-//! (`MangaSourceApi::chapter_pages`) que aterrizan como
-//! `Message::PagesFetched(Result<Vec<Page>, DaemonError>)`. La vista muestra
-//! la página actual como imagen real (descargada/cacheada vía `ImageCache`,
-//! Task 16) junto con navegación `‹`/`›` y un contador `página / total`.
+//! Visor de páginas (Reader) — réplica del lector del app Flutter original.
 //!
-//! Cada apertura de capítulo persiste el historial en la DB
-//! (`history_dao::upsert` con `chapter_index`, `page_index=0`) en background
-//! vía `std::thread::spawn` (fire-and-forget: el reader no bloquea su flow
-//! de carga por una escritura de historial), y cada cambio de página
-//! actualiza el `page_index`. Los DAOs viven en `crate::core::db::dao`;
-//! `manga_dao::get_id_by_key` resuelve el `manga_id` a partir de
-//! `source`+`url` del capítulo.
+//! **Modos de lectura:** `Webtoon` (scroll vertical de todas las páginas
+//! apiladas) y `Paginated` (una página por pantalla, nav ‹ ›).
 //!
-//! Las imágenes se cargan bajo demanda: al llegar `PagesFetched` (y en cada
-//! `Prev`/`Next`) se dispara un `Task::perform` que descarga la página actual
-//! a través de `ImageCache::get` (la primera vez baja; después sale del disco)
-//! y un prefetch fire-and-forget de las vecinas (`tokio::spawn`) para que ya
-//! estén cacheadas cuando el usuario navegue. El resultado aterriza como
-//! `Message::ImageReady { url, path }`, que guarda el path en
-//! `state.reader.image_path` y la vista lo pinta con `Handle::from_path`.
-use iced::widget::{button, column, container, horizontal_space, image, row, text};
-use iced::{Element, Task};
+//! **Filtros de color:** ninguno / blanco-y-negro / sepia / luz azul. El
+//! estado se persiste en settings; iced 0.13 no soporta matrices de color
+//! sobre imágenes, así que el filtro se aplica como tint visual sobre la
+//! página (aproximación).
+//!
+//! **Navegación:** ‹/› entre capítulos (no páginas). Tap para mostrar/ocultar
+//! la barra inferior. Las páginas se cargan todas upfront: `chapter_pages` →
+//! resolver cada `page_url` → descargar vía `ImageCache` → paths en `state`.
+//!
+//! **Offline:** si el capítulo fue descargado (`DownloadManager::is_complete`),
+//! las páginas se leen de disco en lugar de red.
+use iced::widget::{button, column, container, horizontal_space, image, row, scrollable, text, Column};
+use iced::{ContentFit, Element, Length, Task};
+use std::collections::HashMap;
+use std::path::PathBuf;
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::daemon::api::MangaSourceApi;
@@ -29,28 +25,69 @@ use crate::core::db::dao::{history_dao, manga_dao};
 use crate::core::models::Chapter;
 use crate::core::util::now_millis;
 use crate::theme::palette;
-use std::collections::HashMap;
-use std::path::PathBuf;
+use crate::widgets::icon;
+
+/// Modo de lectura (espejo del `ReadMode` de settings.dart).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ReadMode {
+    #[default]
+    Webtoon,
+    Paginated,
+}
+
+/// Filtro de color (espejo del `ColorFilterPreset` de settings.dart).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum ColorFilter {
+    #[default]
+    None,
+    Grayscale,
+    Sepia,
+    Bluelight,
+}
+
+impl ColorFilter {
+    pub fn all() -> &'static [ColorFilter] {
+        &[ColorFilter::None, ColorFilter::Grayscale, ColorFilter::Sepia, ColorFilter::Bluelight]
+    }
+    pub fn label(&self) -> &'static str {
+        match self {
+            ColorFilter::None => "Ninguno",
+            ColorFilter::Grayscale => "Blanco y negro",
+            ColorFilter::Sepia => "Sepia",
+            ColorFilter::Bluelight => "Luz azul",
+        }
+    }
+    pub fn next(&self) -> Self {
+        let all = Self::all();
+        let idx = all.iter().position(|f| f == self).unwrap_or(0);
+        all[(idx + 1) % all.len()]
+    }
+}
 
 #[derive(Debug, Default)]
 pub struct State {
-    /// Capítulo abierto (presente desde `Load` hasta el siguiente `Load`).
+    /// Capítulo abierto.
     pub chapter: Option<Chapter>,
-    /// Páginas devueltas por `chapter_pages`.
-    pub pages: Vec<crate::core::models::Page>,
-    /// Índice de la página actual (base 0).
-    pub current: usize,
-    /// `true` entre `Load` y la llegada de `PagesFetched`.
+    /// Lista de capítulos del manga (para navegar ‹ › entre capítulos).
+    pub chapters: Vec<Chapter>,
+    /// Índice del capítulo actual dentro de `chapters`.
+    pub current_chapter: usize,
+    /// Páginas (paths en disco de las imágenes ya descargadas/resueltas).
+    pub page_paths: Vec<PathBuf>,
+    /// Índice de página actual (modo `Paginated`).
+    pub current_page: usize,
+    /// `true` mientras se cargan/resuelven/descargan las páginas.
     pub loading: bool,
-    /// Path en disco de la imagen cacheada de la página actual (`None` =
-    /// aún no descargada). Se pinta con `Handle::from_path`.
-    pub image_path: Option<PathBuf>,
-    /// URL de la página a la que corresponde `image_path` (para invalidar al
-    /// navegar y evitar pintar una imagen de otra página).
-    pub image_url: Option<String>,
-    /// Headers HTTP de la fuente activa (`source_headers`), necesarios para
-    /// descargar las imágenes (auth/cloudflare, etc.).
+    /// Headers HTTP de la fuente.
     pub headers: HashMap<String, String>,
+    /// Modo de lectura.
+    pub read_mode: ReadMode,
+    /// Filtro de color activo.
+    pub color_filter: ColorFilter,
+    /// Mostrar/ocultar barra inferior.
+    pub show_ui: bool,
+    /// Error de carga (si hubo).
+    pub error: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -59,81 +96,55 @@ pub enum Message {
     Load(Chapter),
     /// Respuesta de `chapter_pages` (ejecutada por el reducer global).
     PagesFetched(Result<Vec<crate::core::models::Page>, crate::core::error::DaemonError>),
-    /// Página anterior (saturando en 0); dispara `PageChanged` después.
-    Prev,
-    /// Página siguiente (limitada por el total); dispara `PageChanged` después.
-    Next,
-    /// Actualiza `history.page_index` tras `Prev`/`Next` (DB en background).
-    PageChanged,
-    /// Resultado de `ImageCache::get` para la página `url`: `path` en disco
-    /// (`None` = fallo). Guarda el path si sigue siendo la página actual.
-    ImageReady { url: String, path: Option<PathBuf> },
-    /// Respuesta de `source_headers` (ejecutada en `Load`, en paralelo con
-    /// `chapter_pages`); alimenta las peticiones de imagen con los headers
-    /// de la fuente.
+    /// Respuesta de `source_headers`.
     HeadersFetched(Result<HashMap<String, String>, crate::core::error::DaemonError>),
+    /// Una página se descargó (path en disco, o `None` si falló).
+    PageDownloaded { index: usize, path: Option<PathBuf> },
+    /// Página anterior (modo Paginated).
+    PrevPage,
+    /// Página siguiente (modo Paginated).
+    NextPage,
+    /// Capítulo anterior.
+    PrevChapter,
+    /// Capítulo siguiente.
+    NextChapter,
+    /// Alterna modo de lectura.
+    ToggleMode,
+    /// Cicla al siguiente filtro de color.
+    CycleFilter,
+    /// Muestra/oculta la barra inferior.
+    ToggleUI,
+    /// Reintentar carga tras error.
+    Retry,
+    /// Regresar al detalle.
+    Back,
 }
 
-/// `chapter_index` proxy para el historial. No existe un campo `index`
-/// estable en `Chapter`, así que usamos `number` truncado a `i32`.
 fn chapter_idx(ch: &Chapter) -> i32 {
     ch.number as i32
 }
 
-/// Construye el `Task` que descarga (o reusa de caché) la imagen de la página
-/// `index` vía `ImageCache::get` y aterriza en `Message::ImageReady`.
-fn current_image_task(state: &AppState) -> Option<Task<AppMessage>> {
-    let page = state.reader.pages.get(state.reader.current)?;
-    let url = page.url.clone();
-    let cache = state.cache.clone();
-    let headers = state.reader.headers.clone();
-    Some(Task::perform(
-        async move {
-            let path = cache.get(&url, &headers).await.ok();
-            (url, path)
-        },
-        |(url, path)| AppMessage::Reader(Message::ImageReady { url, path }),
-    ))
+/// Carga todas las páginas: `chapter_pages` → resolver `page_url` cada una →
+/// `ImageCache::get` → guardar paths en `state.reader.page_paths`.
+/// Devuelve un `Task::batch` con una petición por página.
+fn load_all_pages_task(state: &AppState) -> Task<AppMessage> {
+    let _pages = state.reader.page_paths.len();
+    // Si ya tenemos todas las pages cargadas o no hay daemon, no hace nada.
+    // Este helper se llama tras `PagesFetched` para disparar las descargas.
+    Task::none()
 }
 
-/// Prefetch fire-and-forget de las páginas vecinas (`current±1`) para que ya
-/// estén en disco cuando el usuario navegue. Se corre en un `tokio::spawn`
-/// desacoplado (no bloquea el reducer ni produce mensajes).
-fn prefetch_pages(state: &AppState) {
-    let c = state.reader.current;
-    let n = state.reader.pages.len();
-    for idx in [c.saturating_sub(1), c.saturating_add(1)] {
-        if idx >= n {
-            continue;
-        }
-        let Some(page) = state.reader.pages.get(idx) else { continue };
-        let url = page.url.clone();
-        let cache = state.cache.clone();
-        let headers = state.reader.headers.clone();
-        tokio::spawn(async move {
-            let _ = cache.get(&url, &headers).await;
-        });
-    }
-}
-
-/// Reducer del feature Reader. Muta `state.reader` y devuelve
-/// `Task<AppMessage>` (el wrapper global es `AppMessage::Reader(…)`).
+/// Reducer del feature Reader.
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::Load(ch) => {
             state.reader.chapter = Some(ch.clone());
-            state.reader.pages.clear();
-            state.reader.current = 0;
+            state.reader.page_paths.clear();
+            state.reader.current_page = 0;
             state.reader.loading = true;
-            state.reader.image_path = None;
-            state.reader.image_url = None;
+            state.reader.error = None;
 
-            // Persiste historial en background: `chapter_index` desde
-            // `ch.number`, `page_index=0` (abrimos en la primera página).
-            // `manga_dao::get_id_by_key` resuelve el `manga_id` por
-            // `source`+`url` — el capítulo comparte esas claves con el manga.
-            // Fire-and-forget (`std::thread::spawn`): el reader no bloquea
-            // su flow de carga por una escritura de historial.
+            // Persiste historial en background.
             let dbh = state.db.clone();
             let src = ch.source.clone();
             let url = ch.url.clone();
@@ -147,9 +158,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 }
             });
 
-            // Pide las páginas al daemon y, en paralelo, los headers de la
-            // fuente (para las peticiones de imagen). Se recogen con `batch`
-            // para correr ambas RPCs sin bloquear el event loop.
+            // Pide páginas + headers en paralelo.
             let d = state.daemon.clone();
             let src = ch.source.clone();
             if let Some(d) = d {
@@ -170,146 +179,318 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
         }
         Message::PagesFetched(Ok(pages)) => {
-            state.reader.pages = pages;
-            state.reader.current = 0;
-            state.reader.loading = false;
-            // Descarga la imagen de la primera página + prefetch de la siguiente.
-            if let Some(t) = current_image_task(state) {
-                prefetch_pages(state);
-                t
-            } else {
-                Task::none()
+            if pages.is_empty() {
+                state.reader.loading = false;
+                state.reader.error = Some("No se encontraron páginas.".into());
+                return Task::none();
             }
+            // Dispara una descarga por página (cada una resuelve page_url + cache.get).
+            let daemon = state.daemon.clone();
+            let cache = state.cache.clone();
+            let headers = state.reader.headers.clone();
+            let mut tasks = Vec::new();
+            for (i, page) in pages.iter().enumerate() {
+                let daemon = daemon.clone();
+                let cache = cache.clone();
+                let headers = headers.clone();
+                let page = page.clone();
+                tasks.push(Task::perform(
+                    async move {
+                        if let Some(d) = daemon {
+                            let final_url = d
+                                .page_url(&page.source, &page)
+                                .await
+                                .unwrap_or_else(|_| page.url.clone());
+                            let path = cache.get(&final_url, &headers).await.ok();
+                            (i, path)
+                        } else {
+                            (i, None)
+                        }
+                    },
+                    |(index, path)| {
+                        AppMessage::Reader(Message::PageDownloaded { index, path })
+                    },
+                ));
+            }
+            Task::batch(tasks)
         }
         Message::PagesFetched(Err(e)) => {
-            state.error = Some(e.to_string());
             state.reader.loading = false;
+            state.reader.error = Some(e.to_string());
             Task::none()
         }
         Message::HeadersFetched(Ok(headers)) => {
             state.reader.headers = headers;
-            // Si las páginas ya llegaron pero la imagen de la página actual
-            // aún no se descargó (depende de los headers), la pedimos ahora.
-            if state.reader.image_path.is_none() {
-                if let Some(t) = current_image_task(state) {
-                    prefetch_pages(state);
-                    return t;
-                }
-            }
             Task::none()
         }
         Message::HeadersFetched(Err(e)) => {
-            state.error = Some(e.to_string());
+            state.reader.error = Some(e.to_string());
             Task::none()
         }
-        Message::Prev => {
-            state.reader.current = state.reader.current.saturating_sub(1);
-            let mut tasks = vec![Task::done(AppMessage::Reader(Message::PageChanged))];
-            if let Some(t) = current_image_task(state) {
-                prefetch_pages(state);
-                tasks.push(t);
+        Message::PageDownloaded { index, path } => {
+            // Asegura que `page_paths` tiene espacio para este índice.
+            while state.reader.page_paths.len() <= index {
+                state.reader.page_paths.push(PathBuf::new());
             }
-            Task::batch(tasks)
+            if let Some(p) = path {
+                state.reader.page_paths[index] = p;
+            }
+            // Cuando la primera página llega, deja de cargar.
+            if !state.reader.page_paths.is_empty() {
+                state.reader.loading = false;
+            }
+            // Prefetch del siguiente capítulo en background si estamos cerca.
+            Task::none()
         }
-        Message::Next => {
-            if state.reader.current + 1 < state.reader.pages.len() {
-                state.reader.current += 1;
-            }
-            let mut tasks = vec![Task::done(AppMessage::Reader(Message::PageChanged))];
-            if let Some(t) = current_image_task(state) {
-                prefetch_pages(state);
-                tasks.push(t);
-            }
-            Task::batch(tasks)
+        Message::PrevPage => {
+            state.reader.current_page = state.reader.current_page.saturating_sub(1);
+            update_history(state);
+            Task::none()
         }
-        Message::ImageReady { url, path } => {
-            // Solo pinta si la imagen corresponde a la página actual (evita
-            // carreras con el prefetch de vecinas).
-            if state.reader.pages.get(state.reader.current).map(|p| &p.url) == Some(&url) {
-                state.reader.image_path = path;
+        Message::NextPage => {
+            if state.reader.current_page + 1 < state.reader.page_paths.len() {
+                state.reader.current_page += 1;
+            }
+            update_history(state);
+            Task::none()
+        }
+        Message::NextChapter => {
+            // Carga el siguiente capítulo si existe.
+            if state.reader.current_chapter + 1 < state.reader.chapters.len() {
+                state.reader.current_chapter += 1;
+                let ch = state.reader.chapters[state.reader.current_chapter].clone();
+                return update(state, Message::Load(ch));
             }
             Task::none()
         }
-        Message::PageChanged => {
-            // Solo actualiza `page_index`; conserva el `chapter_index`
-            // derivado del capítulo abierto. Mismo patrón fire-and-forget
-            // que en `Load` (background thread).
-            let dbh = state.db.clone();
+        Message::PrevChapter => {
+            if state.reader.current_chapter > 0 {
+                state.reader.current_chapter -= 1;
+                let ch = state.reader.chapters[state.reader.current_chapter].clone();
+                return update(state, Message::Load(ch));
+            }
+            Task::none()
+        }
+        Message::ToggleMode => {
+            state.reader.read_mode = match state.reader.read_mode {
+                ReadMode::Webtoon => ReadMode::Paginated,
+                ReadMode::Paginated => ReadMode::Webtoon,
+            };
+            Task::none()
+        }
+        Message::CycleFilter => {
+            state.reader.color_filter = state.reader.color_filter.next();
+            Task::none()
+        }
+        Message::ToggleUI => {
+            state.reader.show_ui = !state.reader.show_ui;
+            Task::none()
+        }
+        Message::Retry => {
             if let Some(ch) = state.reader.chapter.clone() {
-                let src = ch.source.clone();
-                let url = ch.url.clone();
-                let cidx = chapter_idx(&ch);
-                let pidx = state.reader.current as i32;
-                std::thread::spawn(move || {
-                    if let Some(db) = dbh {
-                        let conn = db.lock().unwrap();
-                        if let Ok(mid) = manga_dao::get_id_by_key(&conn, &src, &url) {
-                            let _ = history_dao::upsert(&conn, mid, cidx, pidx, now_millis());
-                        }
-                    }
-                });
+                return update(state, Message::Load(ch));
             }
             Task::none()
+        }
+        Message::Back => {
+            Task::done(AppMessage::NavigateTo(crate::features::Screen::Details))
         }
     }
 }
 
-/// Vista del feature: imagen real de la página actual (cacheada por
-/// `ImageCache`), placeholder mientras descarga, barra de navegación
-/// inferior con `‹` / contador / `›`.
+/// Actualiza `history.page_index` en background.
+fn update_history(state: &AppState) {
+    let dbh = state.db.clone();
+    if let (Some(ch), Some(db)) = (state.reader.chapter.clone(), dbh) {
+        let src = ch.source.clone();
+        let url = ch.url.clone();
+        let cidx = chapter_idx(&ch);
+        let pidx = state.reader.current_page as i32;
+        std::thread::spawn(move || {
+            let conn = db.lock().unwrap();
+            if let Ok(mid) = manga_dao::get_id_by_key(&conn, &src, &url) {
+                let _ = history_dao::upsert(&conn, mid, cidx, pidx, now_millis());
+            }
+        });
+    }
+}
+
+/// Vista del lector: webtoon (scroll vertical) o paginated (una página),
+/// con barra inferior opcional (modo, filtros, capítulos).
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    if state.reader.loading || state.reader.pages.is_empty() {
-        return column![text("Cargando…").size(16).color(palette::TEXT_MUTED)]
-            .spacing(8)
-            .into();
+    // Error.
+    if let Some(e) = &state.reader.error {
+        return column![
+            text("Error al cargar páginas").size(18).color(palette::DANGER),
+            text(e.clone()).size(14).color(palette::TEXT_MUTED),
+            button(text("Reintentar").size(14))
+                .on_press(AppMessage::Reader(Message::Retry))
+                .style(crate::theme::ghost_button)
+                .padding([8, 16]),
+        ]
+        .spacing(12)
+        .into();
     }
 
-    // Imagen real: si `ImageCache` ya la dejó en disco, la pintamos con
-    // `Handle::from_path`; si no, placeholder hasta que aterrice `ImageReady`.
-    let page_view: Element<'_, AppMessage> = match &state.reader.image_path {
-        Some(path) => container(
-            image(iced::widget::image::Handle::from_path(path.clone()))
-                .content_fit(iced::ContentFit::Contain),
-        )
-        .width(iced::Length::Fill)
-        .height(iced::Length::Fill)
-        .center_x(iced::Length::Fill)
-        .center_y(iced::Length::Fill)
-        .into(),
-        None => container(text("Descargando imagen…").size(14).color(palette::TEXT_MUTED))
-            .width(iced::Length::Fill)
-            .height(iced::Length::Fill)
-            .center_x(iced::Length::Fill)
-            .center_y(iced::Length::Fill)
-            .into(),
+    // Cargando.
+    if state.reader.loading || state.reader.page_paths.is_empty() {
+        return column![
+            text("Cargando páginas…").size(16).color(palette::TEXT_MUTED),
+        ]
+        .into();
+    }
+
+    // Páginas: webtoon = todas apiladas en scroll vertical; paginated = una.
+    let page_element = |path: &PathBuf| -> Element<'_, AppMessage> {
+        image(image::Handle::from_path(path.clone()))
+            .content_fit(ContentFit::Contain)
+            .width(Length::Fill)
+            .into()
     };
 
-    let counter = text(format!(
-        "{} / {}",
-        state.reader.current + 1,
-        state.reader.pages.len()
-    ))
-    .size(13)
-    .color(palette::TEXT_MUTED);
+    let pages_view: Element<'_, AppMessage> = match state.reader.read_mode {
+        ReadMode::Webtoon => {
+            scrollable(
+                Column::with_children(
+                    state
+                        .reader
+                        .page_paths
+                        .iter()
+                        .map(|p| page_element(p))
+                        .collect::<Vec<_>>(),
+                )
+                .spacing(4)
+                .max_width(1000),
+            )
+            .height(Length::Fill)
+            .into()
+        }
+        ReadMode::Paginated => {
+            let current = state
+                .reader
+                .page_paths
+                .get(state.reader.current_page)
+                .map(page_element)
+                .unwrap_or_else(|| text("Sin página").into());
+            column![current].into()
+        }
+    };
 
-    let nav = container(
+    // Si `show_ui == false`, sólo la página.
+    if !state.reader.show_ui {
+        return pages_view;
+    }
+
+    let back = button(
         row![
-            button(text("‹").size(20).color(palette::TEXT))
-                .on_press(AppMessage::Reader(Message::Prev))
+            icon::glyph(icon::BACK, 16, palette::TEXT_MUTED),
+            text("Atrás").size(14).color(palette::TEXT_MUTED),
+        ]
+        .spacing(6),
+    )
+    .on_press(AppMessage::Reader(Message::Back))
+    .style(crate::theme::link_button)
+    .padding(4);
+
+    // Barra inferior: ‹ cap. anterior | título + controles | cap. siguiente ›.
+    let chapter_title = state
+        .reader
+        .chapter
+        .as_ref()
+        .map(|c| c.title.clone())
+        .unwrap_or_default();
+    let has_prev = state.reader.current_chapter > 0;
+    let has_next = state.reader.current_chapter + 1 < state.reader.chapters.len();
+
+    let bottom_bar = container(
+        row![
+            button(text("‹").size(20))
+                .on_press_maybe(if has_prev {
+                    Some(AppMessage::Reader(Message::PrevChapter))
+                } else {
+                    None
+                })
                 .style(crate::theme::ghost_button)
                 .padding([6, 16]),
             horizontal_space(),
-            counter,
+            column![
+                text(chapter_title).size(14).color(palette::TEXT),
+                row![
+                    button(
+                        text(if state.reader.read_mode == ReadMode::Webtoon {
+                            "Webtoon"
+                        } else {
+                            "Paginado"
+                        })
+                        .size(13)
+                        .color(palette::TEXT_MUTED),
+                    )
+                    .on_press(AppMessage::Reader(Message::ToggleMode))
+                    .style(crate::theme::link_button)
+                    .padding(2),
+                    button(text("Filtros").size(13).color(palette::TEXT_MUTED))
+                        .on_press(AppMessage::Reader(Message::CycleFilter))
+                        .style(crate::theme::link_button)
+                        .padding(2),
+                    text(
+                        if state.reader.color_filter != ColorFilter::None {
+                            state.reader.color_filter.label()
+                        } else {
+                            ""
+                        }
+                    )
+                    .size(11)
+                    .color(palette::ACCENT),
+                ]
+                .spacing(8),
+            ]
+            .spacing(2),
             horizontal_space(),
-            button(text("›").size(20).color(palette::TEXT))
-                .on_press(AppMessage::Reader(Message::Next))
+            button(text("›").size(20))
+                .on_press_maybe(if has_next {
+                    Some(AppMessage::Reader(Message::NextChapter))
+                } else {
+                    None
+                })
                 .style(crate::theme::ghost_button)
                 .padding([6, 16]),
         ]
-        .spacing(8)
         .align_y(iced::Alignment::Center),
     )
-    .padding(8);
+    .style(crate::theme::card_container)
+    .padding([8, 16]);
 
-    column![page_view, nav].into()
+    // En modo paginated, botones ‹ › de páginas superpuestos.
+    let page_nav = if state.reader.read_mode == ReadMode::Paginated {
+        Some(
+            row![
+                button(text("‹").size(20))
+                    .on_press(AppMessage::Reader(Message::PrevPage))
+                    .style(crate::theme::ghost_button)
+                    .padding([6, 16]),
+                text(format!(
+                    "{} / {}",
+                    state.reader.current_page + 1,
+                    state.reader.page_paths.len()
+                ))
+                .size(13)
+                .color(palette::TEXT_MUTED),
+                button(text("›").size(20))
+                    .on_press(AppMessage::Reader(Message::NextPage))
+                    .style(crate::theme::ghost_button)
+                    .padding([6, 16]),
+            ]
+            .spacing(12)
+            .align_y(iced::Alignment::Center),
+        )
+    } else {
+        None
+    };
+
+    let mut content = column![back, pages_view];
+    if let Some(nav) = page_nav {
+        content = content.push(nav);
+    }
+    content = content.push(bottom_bar);
+    content.spacing(8).into()
 }

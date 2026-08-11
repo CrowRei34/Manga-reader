@@ -44,6 +44,8 @@ pub struct AppState {
     /// Headers HTTP para bajar portadas (Referer etc.). Por ahora vacío;
     /// se puede poblar con `source_headers` por fuente si hace falta.
     pub cover_headers: std::collections::HashMap<String, String>,
+    /// Tamaño de la ventana (para grids responsivos).
+    pub window_size: (f32, f32),
 }
 
 impl Default for AppState {
@@ -68,6 +70,7 @@ impl Default for AppState {
             extensions: extensions::State::default(),
             covers: std::collections::HashMap::new(),
             cover_headers: std::collections::HashMap::new(),
+            window_size: (1280.0, 800.0),
         }
     }
 }
@@ -78,6 +81,8 @@ pub enum Message {
     DaemonStarted(Result<PingReply, DaemonError>),
     SourcesListed(Result<Vec<Source>, DaemonError>),
     CatalogListed(Result<Vec<Manga>, DaemonError>),
+    /// Paginación: agrega a `browse.list` (no reemplaza).
+    CatalogMoreListed(Result<Vec<Manga>, DaemonError>),
     DaemonDied,
     NavigateTo(Screen),
     ErrorDismissed,
@@ -96,6 +101,8 @@ pub enum Message {
     Extensions(extensions::Message),
     /// Resultado de la descarga de una portada (`cover_url` → path en disco).
     CoverLoaded(String, Option<std::path::PathBuf>),
+    /// Resize de la ventana (para recalcular `per_row` de los grids).
+    WindowResized(f32, f32),
 }
 
 impl From<NavMsg> for Message {
@@ -146,7 +153,24 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::SourcesListed(Ok(s)) => {
             state.sources = s;
-            Task::none()
+            // Auto-selecciona la fuente default y carga su catálogo (como el
+            // app original, que arranca mostrando MangaDex). Si está
+            // deshabilitada en Extensiones, usa la primera disponible.
+            let default_id = if state.sources.iter().any(|x| x.id == "MANGADEX")
+                && !state.extensions.disabled.contains("MANGADEX")
+            {
+                Some("MANGADEX".to_string())
+            } else {
+                state
+                    .sources
+                    .iter()
+                    .find(|x| !state.extensions.disabled.contains(&x.id))
+                    .map(|x| x.id.clone())
+            };
+            match default_id {
+                Some(id) => browse::update(state, browse::Message::SourceSelected(id)),
+                None => Task::none(),
+            }
         }
         Message::SourcesListed(Err(e)) => {
             state.error = Some(e.to_string());
@@ -161,6 +185,23 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::CatalogListed(Err(e)) => {
             state.browse.loading = false;
+            state.error = Some(e.to_string());
+            Task::none()
+        }
+        Message::CatalogMoreListed(Ok(more)) => {
+            state.browse.loading_more = false;
+            if more.is_empty() {
+                state.browse.has_more = false;
+                Task::none()
+            } else {
+                state.browse.list.extend(more.clone());
+                let list = state.browse.list.clone();
+                crate::widgets::cover::fetch_covers(state, &list)
+            }
+        }
+        Message::CatalogMoreListed(Err(e)) => {
+            state.browse.loading_more = false;
+            state.browse.has_more = false;
             state.error = Some(e.to_string());
             Task::none()
         }
@@ -223,6 +264,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             }
             Task::none()
         }
+        Message::WindowResized(w, h) => {
+            state.window_size = (w, h);
+            Task::none()
+        }
     }
 }
 
@@ -272,6 +317,12 @@ pub fn subscription(state: &AppState) -> Subscription<Message> {
             }),
         ));
     }
+
+    // Resize de ventana → recalcula per_row de los grids.
+    subs.push(
+        iced::window::resize_events()
+            .map(|(_id, size)| Message::WindowResized(size.width, size.height)),
+    );
 
     if subs.is_empty() {
         Subscription::none()

@@ -33,6 +33,7 @@ fn main() -> iced::Result {
         .theme(|state| theme::iced_theme(&state.settings))
         .subscription(app::subscription)
         .font(ICON_FONT_BYTES)
+        .window_size(iced::Size::new(1280.0, 800.0))
         .run_with(init_state)
 }
 

@@ -11,10 +11,8 @@ use crate::core::db;
 use crate::core::db::dao::{history_dao, manga_dao};
 use crate::core::error::DbError;
 use crate::core::models::Manga;
-use crate::features::details;
-use crate::core::models::MangaRef;
 use crate::theme::palette;
-use crate::widgets::cover::{cover_card, cover_grid};
+use crate::widgets::cover::cover_card;
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -90,11 +88,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 m,
                 &state.covers,
                 Some(format!("Cap. {cidx}")),
-                AppMessage::Details(details::Message::Load(MangaRef {
-                    source: m.source.clone(),
-                    url: m.url.clone(),
-                    title: m.title.clone(),
-                })),
+                crate::widgets::cover::details_msg(m),
             )
         })
         .collect();
@@ -103,14 +97,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     )
     .direction(scrollable::Direction::Horizontal(Default::default()));
 
-    // Añadidos recientemente: grid de la biblioteca.
-    let grid = cover_grid(&state.library, &state.covers, 5, |m| {
-        AppMessage::Details(details::Message::Load(MangaRef {
-            source: m.source.clone(),
-            url: m.url.clone(),
-            title: m.title.clone(),
-        }))
-    });
+    // Añadidos recientemente: grid responsivo de la biblioteca.
+    let grid = crate::widgets::cover::cover_grid(
+        &state.library,
+        &state.covers,
+        crate::widgets::cover::per_row_for(state.window_size.0),
+        crate::widgets::cover::details_msg,
+    );
 
     column![
         title,

@@ -9,10 +9,8 @@ use crate::app::{AppState, Message as AppMessage};
 use crate::core::db;
 use crate::core::db::dao::{category_dao, manga_dao};
 use crate::core::error::DbError;
-use crate::core::models::{Category, MangaRef};
-use crate::features::details;
+use crate::core::models::Category;
 use crate::theme::palette;
-use crate::widgets::cover::cover_grid;
 use crate::widgets::icon;
 
 #[derive(Debug, Default)]
@@ -118,13 +116,12 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         ]
         .spacing(8)
     } else {
-        column![cover_grid(&state.library, &state.covers, 5, |m| {
-            AppMessage::Details(details::Message::Load(MangaRef {
-                source: m.source.clone(),
-                url: m.url.clone(),
-                title: m.title.clone(),
-            }))
-        })]
+        column![crate::widgets::cover::cover_grid(
+            &state.library,
+            &state.covers,
+            crate::widgets::cover::per_row_for(state.window_size.0),
+            crate::widgets::cover::details_msg,
+        )]
     };
 
     column![title_row, chips_row, scrollable(grid)]

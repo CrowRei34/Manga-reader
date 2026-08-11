@@ -1,19 +1,19 @@
-//! Pantalla de Exploración (Browse). Selector de fuentes (uno de
-//! `state.sources`), buscador opcional, lista scrollable de mangas del
-//! catálogo y botón "Más" para paginar (offset += 20).
+//! Pantalla de Exploración (Browse). Selector de fuentes + buscador +
+//! grid scrollable de mangas con **carga infinita** (al nearing bottom del
+//! scroll, se pide la siguiente página y se APENDA a la lista — igual que
+//! el app Flutter original `browse_controller.loadMore`).
 //!
 //! Las `Task` devueltas llaman `MangaSourceApi::catalog_list` contra el
-//! `DaemonClient` (`Arc<DaemonClient>`) que vive en `AppState`. Los
-//! resultados aterrizan en el reducer global como `Message::CatalogListed`.
+//! `DaemonClient`. Los resultados aterrizan en el reducer global:
+//! `CatalogListed` (carga inicial, reemplaza) y `CatalogMoreListed`
+//! (paginación, agrega).
 use iced::widget::{button, column, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::daemon::api::MangaSourceApi;
-use crate::core::models::{Manga, MangaRef};
-use crate::features::details;
+use crate::core::models::Manga;
 use crate::theme::palette;
-use crate::widgets::cover::cover_grid;
 use crate::widgets::icon;
 
 #[derive(Debug, Default)]
@@ -23,6 +23,10 @@ pub struct State {
     pub query: Option<String>,
     pub list: Vec<Manga>,
     pub loading: bool,
+    /// Carga de página siguiente en curso.
+    pub loading_more: bool,
+    /// `false` cuando la última petición volvió vacía → no hay más.
+    pub has_more: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -32,11 +36,11 @@ pub enum Message {
     Refresh,
     QueryChanged(String),
     More,
+    /// Disparado por `on_scroll` cuando el viewport se acerca al fondo.
+    Scrolled(f32),
 }
 
-/// Reducer del feature Browse. Muta `state.browse` y emite `Task<AppMessage>`
-/// (nunca `Task<self::Message>` — el catálogo se resuelve asíncrono y el
-/// resultado entra por el `Message::CatalogListed` global).
+/// Reducer del feature Browse.
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::SourceSelected(s) => {
@@ -45,6 +49,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.browse.query = None;
             state.browse.list.clear();
             state.browse.loading = true;
+            state.browse.has_more = true;
+            state.browse.loading_more = false;
             let daemon = state.daemon.clone();
             if let Some(d) = daemon {
                 Task::perform(
@@ -71,6 +77,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             let q = state.browse.query.clone();
             state.browse.offset = 0;
             state.browse.loading = true;
+            state.browse.has_more = true;
+            state.browse.list.clear();
             let daemon = state.daemon.clone();
             if let Some(d) = daemon {
                 Task::perform(
@@ -86,16 +94,29 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::More => {
-            let off = state.browse.offset + 20;
-            state.browse.offset = off;
-            state.browse.loading = true;
+            // No dispara si ya está cargando más, si no hay más, o si
+            // está en la carga inicial. (Espejo de `loadMore` del Dart.)
+            if state.browse.loading_more || !state.browse.has_more || state.browse.loading {
+                return Task::none();
+            }
+            state.browse.loading_more = true;
             let s = state.browse.source.clone().unwrap_or_default();
+            let off = state.browse.list.len() as i32; // offset = lista actual
+            let q = state.browse.query.clone();
             let daemon = state.daemon.clone();
             if let Some(d) = daemon {
                 Task::perform(
-                    async move { d.catalog_list(&s, off, None).await },
-                    AppMessage::CatalogListed,
+                    async move { d.catalog_list(&s, off, q.as_deref()).await },
+                    AppMessage::CatalogMoreListed,
                 )
+            } else {
+                Task::none()
+            }
+        }
+        Message::Scrolled(relative_y) => {
+            // Dispara `More` cuando el scroll pasa del 85 % del fondo.
+            if relative_y > 0.85 {
+                update(state, Message::More)
             } else {
                 Task::none()
             }
@@ -154,26 +175,36 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     .spacing(12)
     .align_y(iced::Alignment::Center);
 
-    // Grid de portadas (título + autor).
-    let grid = cover_grid(&state.browse.list, &state.covers, 5, |m| {
-        AppMessage::Details(details::Message::Load(MangaRef {
-            source: m.source.clone(),
-            url: m.url.clone(),
-            title: m.title.clone(),
-        }))
-    });
+    // Grid de portadas (título + autor), responsivo al ancho de la ventana.
+    let grid = crate::widgets::cover::cover_grid(
+        &state.browse.list,
+        &state.covers,
+        crate::widgets::cover::per_row_for(state.window_size.0),
+        crate::widgets::cover::details_msg,
+    );
 
-    let mut col = column![header, scrollable(grid)];
+    // Indicador de carga al final de la lista (spinner mientras `loading_more`).
+    let footer: Element<'_, AppMessage> = if state.browse.loading_more {
+        text("Cargando más…").size(14).color(palette::TEXT_MUTED).into()
+    } else if !state.browse.has_more && !state.browse.list.is_empty() {
+        text("No hay más mangas").size(14).color(palette::TEXT_DIM).into()
+    } else {
+        text("").into()
+    };
+
+    let scroll_content = column![grid, footer].spacing(16);
+
+    let mut col = column![
+        header,
+        scrollable(scroll_content)
+            .on_scroll(|vp| {
+                let off = vp.relative_offset();
+                AppMessage::Browse(Message::Scrolled(off.y as f32))
+            })
+            .height(Length::Fill),
+    ];
     if state.browse.loading {
         col = col.push(text("Cargando…").size(14).color(palette::TEXT_MUTED));
-    }
-    if !state.browse.list.is_empty() {
-        col = col.push(
-            button(text("Más").size(14))
-                .on_press(AppMessage::Browse(Message::More))
-                .style(crate::theme::ghost_button)
-                .padding([8, 20]),
-        );
     }
     col.spacing(16).into()
 }

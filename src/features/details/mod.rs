@@ -110,6 +110,12 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::ChapterSelected(c) => {
+            // Pasa la lista de capítulos + índice de este capítulo al reader
+            // (para navegar ‹ › entre capítulos).
+            let idx = state.details.chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
+            state.reader.chapters = state.details.chapters.clone();
+            state.reader.current_chapter = idx;
+            // Modo de lectura por defecto desde settings (TODO: mapear).
             Task::batch([
                 Task::done(AppMessage::Reader(reader::Message::Load(c))),
                 Task::done(AppMessage::NavigateTo(Screen::Reader)),

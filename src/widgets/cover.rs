@@ -12,9 +12,20 @@ use iced::widget::{button, column, container, image, text};
 use iced::{ContentFit, Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
-use crate::core::models::Manga;
+use crate::core::models::{Manga, MangaRef};
+use crate::features::details;
 use crate::theme::palette;
 use crate::widgets::icon;
+
+/// Mensaje estándar al tocar una portada: abre Details para ese manga.
+/// (fn-pointer para `responsive_cover_grid`, que no acepta closures con captures.)
+pub fn details_msg(m: &Manga) -> AppMessage {
+    AppMessage::Details(details::Message::Load(MangaRef {
+        source: m.source.clone(),
+        url: m.url.clone(),
+        title: m.title.clone(),
+    }))
+}
 
 /// Ancho/alto de portada (aspect ~0.70 como en el diseño original).
 pub const COVER_W: f32 = 168.0;
@@ -113,4 +124,13 @@ pub fn cover_grid<'a>(
         })
         .collect::<Vec<Element<'a, AppMessage>>>();
     iced::widget::Column::with_children(rows).spacing(16).into()
+}
+
+/// Grid responsivo determinista: el caller pasa `per_row` calculado del
+/// ancho de ventana (ver `per_row_for`). No usamos `iced::widget::responsive`
+/// porque dentro de `scrollable` recibe altura infinita y solapa el header.
+pub fn per_row_for(window_width: f32) -> usize {
+    // Ancho de contenido ≈ ventana - sidebar(185) - padding(40).
+    let content = (window_width - 225.0).max(200.0);
+    ((content / (COVER_W + 16.0)).floor() as usize).max(1)
 }
