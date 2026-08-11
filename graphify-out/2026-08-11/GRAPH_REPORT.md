@@ -1,11 +1,11 @@
 # Graph Report - Bakeneko  (2026-08-11)
 
 ## Corpus Check
-- 55 files · ~33,539 words
+- 52 files · ~33,373 words
 - Verdict: corpus is large enough that graph structure adds value.
 
 ## Summary
-- 565 nodes · 1164 edges · 42 communities (41 shown, 1 thin omitted)
+- 557 nodes · 1157 edges · 28 communities (27 shown, 1 thin omitted)
 - Extraction: 99% EXTRACTED · 1% INFERRED · 0% AMBIGUOUS · INFERRED: 11 edges (avg confidence: 0.8)
 - Token cost: 0 input · 0 output
 
@@ -20,31 +20,21 @@
 - DaemonClient (Rust, spawn java + Unix socket)
 - File Structure
 - models.rs
-- lib.rs
 - Screen
 - library/mod.rs
 - home/mod.rs
 - DbError
-- daemon/mod.rs
 - RpcResponse
-- dao/mod.rs
 - FakeDaemon
-- schema.rs
-- MockDaemon
-- core/mod.rs
 - Manga
+- MangaSourceApi
 - Settings
 - Xdg
 - Database
 - app.rs
 - dao_test.rs
-- browse/mod.rs
 - update
-- home/mod.rs
-- Screen
 - make_universal.sh
-- update
-- icon.rs
 
 ## God Nodes (most connected - your core abstractions)
 1. `DbError` - 48 edges
@@ -60,15 +50,15 @@
 
 ## Surprising Connections (you probably didn't know these)
 - `corrupt_file_yields_default()` --calls--> `load()`  [INFERRED]
-  tests/settings_test.rs → bakeneko-core/src/settings.rs
+  tests/settings_test.rs → src/core/settings.rs
 - `missing_file_yields_default()` --calls--> `load()`  [INFERRED]
-  tests/settings_test.rs → bakeneko-core/src/settings.rs
-- `update()` --calls--> `save()`  [INFERRED]
-  bakeneko-ui/src/features/settings/mod.rs → bakeneko-core/src/settings.rs
+  tests/settings_test.rs → src/core/settings.rs
 - `MockDaemon` --implements--> `MangaSourceApi`  [EXTRACTED]
-  tests/daemon_client_test.rs → bakeneko-core/src/daemon/api.rs
+  tests/daemon_client_test.rs → src/core/daemon/api.rs
 - `FakeDaemon` --implements--> `MangaSourceApi`  [EXTRACTED]
-  tests/download_manager_test.rs → bakeneko-core/src/daemon/api.rs
+  tests/download_manager_test.rs → src/core/daemon/api.rs
+- `sample_manga()` --references--> `Manga`  [EXTRACTED]
+  tests/dao_test.rs → src/core/models.rs
 
 ## Import Cycles
 - None detected.
@@ -78,15 +68,15 @@
 - **Iced Elm-like architecture (AppState + Message/update + Subscriptions/Commands)** — docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_appstate, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_message_enum, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_subscriptions_commands, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_iced_runtime [EXTRACTED 1.00]
 - **Download pipeline (manager -> daemon pages -> http -> dao progress -> event stream)** — docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_downloadmanager, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_daemonclient, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_net_image_cache, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_daos, docs_superpowers_specs_2026_08_10_bakeneko_rust_port_design_downloadevent [EXTRACTED 1.00]
 
-## Communities (42 total, 1 thin omitted)
+## Communities (28 total, 1 thin omitted)
 
 ### Community 0 - "DaemonError"
-Cohesion: 0.20
-Nodes (10): fake_server(), mock_satisfies_api(), MockDaemon, real_client_pings_fake_server(), HashMap, Option, Path, Result (+2 more)
+Cohesion: 0.07
+Nodes (36): AsyncMutex, AtomicU64, Child, DaemonClient, Arc, HashMap, Mutex, Option (+28 more)
 
 ### Community 1 - "browse/mod.rs"
-Cohesion: 0.10
-Nodes (23): AsyncMutex, AtomicU64, DaemonClient, Arc, HashMap, Mutex, Option, PathBuf (+15 more)
+Cohesion: 0.24
+Nodes (10): Message, AppMessage, Element, Option, String, Task, Vec, State (+2 more)
 
 ### Community 2 - "DaemonClient (Rust, spawn java + Unix socket)"
 Cohesion: 0.10
@@ -100,101 +90,61 @@ Nodes (22): Bakeneko → Rust Implementation Plan, File Structure, Global Constr
 Cohesion: 0.14
 Nodes (27): ds_to_str(), list(), list_by_state(), row_to_entry(), Connection, Result, Row, Vec (+19 more)
 
-### Community 5 - "lib.rs"
+### Community 6 - "Screen"
 Cohesion: 0.14
 Nodes (23): now_millis(), chapter_idx(), ColorFilter, filter_tint(), fit_page_to_texture_limits(), Message, ReadMode, AppMessage (+15 more)
-
-### Community 6 - "Screen"
-Cohesion: 0.15
-Nodes (17): MangaSourceApi, DownloadEvent, DownloadManager, Inner, Arc, Connection, Mutex, PathBuf (+9 more)
 
 ### Community 7 - "library/mod.rs"
 Cohesion: 0.25
 Nodes (26): c(), card_container(), chip_button(), content_container(), divider(), dropdown(), dropdown_menu(), ghost_button() (+18 more)
 
 ### Community 8 - "home/mod.rs"
-Cohesion: 0.24
-Nodes (9): ImageCache, HashMap, Option, PathBuf, Result, Self, String, Client (+1 more)
+Cohesion: 0.18
+Nodes (13): Client, Handle, NetError, Error, String, ImageCache, HashMap, Option (+5 more)
 
 ### Community 9 - "DbError"
-Cohesion: 0.10
-Nodes (45): add(), assign(), delete(), for_manga(), list(), rename(), row_to_category(), Connection (+37 more)
-
-### Community 10 - "daemon/mod.rs"
-Cohesion: 0.18
-Nodes (4): PathBuf, Result, String, Xdg
+Cohesion: 0.09
+Nodes (46): Clone, add(), assign(), delete(), for_manga(), list(), rename(), row_to_category() (+38 more)
 
 ### Community 11 - "RpcResponse"
 Cohesion: 0.12
 Nodes (9): RpcErr, RpcRequest, RpcResponse, Error, Option, Result, Self, String (+1 more)
 
-### Community 12 - "dao/mod.rs"
-Cohesion: 0.22
-Nodes (11): Database, db_blocking(), Arc, Connection, F, Mutex, Option, Path (+3 more)
-
 ### Community 13 - "FakeDaemon"
 Cohesion: 0.29
 Nodes (5): reader_flow(), F, Option, T, step()
 
-### Community 14 - "schema.rs"
-Cohesion: 0.22
-Nodes (8): PingReply, Source, FakeDaemon, HashMap, Option, Result, String, Vec
-
-### Community 16 - "MockDaemon"
-Cohesion: 0.24
-Nodes (13): chapter_blob_json(), list_for_manga(), mark_read(), replace_for_manga(), row_to_chapter(), Connection, Result, Row (+5 more)
-
-### Community 17 - "core/mod.rs"
-Cohesion: 0.25
-Nodes (12): cover_card(), cover_grid(), details_msg(), fetch_covers(), AppMessage, Element, Fn, HashMap (+4 more)
-
 ### Community 18 - "Manga"
-Cohesion: 0.83
-Nodes (3): enqueue_then_poll_marks_done(), sample_chapter(), sample_manga()
+Cohesion: 0.06
+Nodes (52): Map, chapter_blob_json(), list_for_manga(), mark_read(), replace_for_manga(), row_to_chapter(), Connection, Result (+44 more)
+
+### Community 19 - "MangaSourceApi"
+Cohesion: 0.07
+Nodes (19): Message, Runtime, Send, MangaSourceApi, DownloadManager, Inner, Arc, Connection (+11 more)
 
 ### Community 20 - "Settings"
-Cohesion: 0.11
-Nodes (20): load(), Default, Option, PathBuf, Result, Self, String, save() (+12 more)
+Cohesion: 0.20
+Nodes (13): load(), Default, Option, PathBuf, Result, Self, String, save() (+5 more)
 
 ### Community 21 - "Xdg"
-Cohesion: 0.24
-Nodes (8): HistoryEntry, Manga, Page, Default, Option, Self, String, Vec
+Cohesion: 0.29
+Nodes (4): PathBuf, Result, String, Xdg
 
 ### Community 22 - "Database"
-Cohesion: 0.20
-Nodes (11): MangaRef, Message, AppMessage, Element, Option, Result, Task, Vec (+3 more)
+Cohesion: 0.22
+Nodes (11): Database, db_blocking(), Arc, Connection, F, Mutex, Option, Path (+3 more)
 
 ### Community 23 - "app.rs"
-Cohesion: 0.14
-Nodes (20): AppState, Message, Arc, Connection, Default, Element, HashMap, Mutex (+12 more)
+Cohesion: 0.07
+Nodes (34): From, Loaded, Receiver, AppState, Message, Arc, Connection, Default (+26 more)
 
 ### Community 24 - "dao_test.rs"
 Cohesion: 0.49
 Nodes (9): categories_and_assignment(), chapters_replace_and_mark_read(), download_states_transition(), history_upsert_recent(), library_flag_roundtrip(), manga_upsert_and_get_by_key(), Connection, sample_manga() (+1 more)
 
-### Community 26 - "browse/mod.rs"
-Cohesion: 0.24
-Nodes (10): Message, AppMessage, Element, Option, String, Task, Vec, State (+2 more)
-
 ### Community 27 - "update"
-Cohesion: 0.27
-Nodes (9): Message, AppMessage, Element, String, Task, State, update(), view() (+1 more)
-
-### Community 28 - "home/mod.rs"
-Cohesion: 0.27
-Nodes (10): Message, AppMessage, Element, Result, Task, Vec, section_header(), State (+2 more)
-
-### Community 29 - "Screen"
-Cohesion: 0.24
-Nodes (6): Self, Screen, NavMsg, Element, M, view()
-
-### Community 31 - "update"
-Cohesion: 0.32
-Nodes (7): Message, AppMessage, Element, String, Task, update(), view()
-
-### Community 32 - "icon.rs"
-Cohesion: 0.43
-Nodes (6): as_element(), glyph(), Color, Element, M, Text
+Cohesion: 0.11
+Nodes (22): HashSet, Message, AppMessage, Element, String, Task, State, update() (+14 more)
 
 ## Knowledge Gaps
 - **25 isolated node(s):** `make_universal.sh script`, `Global Constraints`, `Task 1: Cargo scaffold + entry point`, `Task 2: core/xdg.rs — XDG paths`, `Task 3: core/settings.rs — settings.json load/save` (+20 more)
@@ -204,16 +154,16 @@ Nodes (6): as_element(), glyph(), Color, Element, M, Text
 ## Suggested Questions
 _Questions this graph is uniquely positioned to answer:_
 
-- **Why does `AppState` connect `app.rs` to `browse/mod.rs`, `models.rs`, `lib.rs`, `Screen`, `home/mod.rs`, `DbError`, `schema.rs`, `core/mod.rs`, `Settings`, `Xdg`, `Database`, `browse/mod.rs`, `update`, `home/mod.rs`, `Screen`, `update`?**
-  _High betweenness centrality (0.194) - this node is a cross-community bridge._
-- **Why does `DbError` connect `DbError` to `browse/mod.rs`, `models.rs`, `Screen`, `dao/mod.rs`, `MockDaemon`, `app.rs`, `home/mod.rs`?**
-  _High betweenness centrality (0.137) - this node is a cross-community bridge._
-- **Why does `Manga` connect `Xdg` to `DaemonError`, `browse/mod.rs`, `Screen`, `DbError`, `schema.rs`, `MockDaemon`, `core/mod.rs`, `Manga`, `Database`, `app.rs`, `dao_test.rs`, `browse/mod.rs`, `home/mod.rs`?**
-  _High betweenness centrality (0.129) - this node is a cross-community bridge._
+- **Why does `AppState` connect `app.rs` to `DaemonError`, `browse/mod.rs`, `models.rs`, `Screen`, `home/mod.rs`, `DbError`, `Manga`, `MangaSourceApi`, `Settings`, `update`?**
+  _High betweenness centrality (0.198) - this node is a cross-community bridge._
+- **Why does `DbError` connect `DbError` to `models.rs`, `home/mod.rs`, `Manga`, `MangaSourceApi`, `Database`, `app.rs`?**
+  _High betweenness centrality (0.140) - this node is a cross-community bridge._
+- **Why does `Manga` connect `Manga` to `DaemonError`, `browse/mod.rs`, `DbError`, `MangaSourceApi`, `app.rs`, `dao_test.rs`?**
+  _High betweenness centrality (0.132) - this node is a cross-community bridge._
 - **What connects `make_universal.sh script`, `Global Constraints`, `Task 1: Cargo scaffold + entry point` to the rest of the system?**
   _25 weakly-connected nodes found - possible documentation gaps or missing edges._
-- **Should `browse/mod.rs` be split into smaller, more focused modules?**
-  _Cohesion score 0.10409745293466224 - nodes in this community are weakly interconnected._
+- **Should `DaemonError` be split into smaller, more focused modules?**
+  _Cohesion score 0.07055630936227951 - nodes in this community are weakly interconnected._
 - **Should `DaemonClient (Rust, spawn java + Unix socket)` be split into smaller, more focused modules?**
   _Cohesion score 0.10144927536231885 - nodes in this community are weakly interconnected._
 - **Should `File Structure` be split into smaller, more focused modules?**
