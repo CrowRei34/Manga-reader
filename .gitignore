@@ -2,3 +2,7 @@
 /AppDir
 /appimagetool-*.AppImage
 /*.AppImage
+
+# Graphify (knowledge graph - generated, not committed)
+/graphify-out/
+.graphify*
