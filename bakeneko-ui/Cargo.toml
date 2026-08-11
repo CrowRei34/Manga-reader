@@ -1,0 +1,16 @@
+[package]
+name = "bakeneko"
+version = "0.1.0"
+edition = "2021"
+
+[dependencies]
+bakeneko-core = { path = "../bakeneko-core" }
+iced = { version = "0.13", features = ["tokio", "image", "advanced", "lazy"] }
+tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "net", "sync", "time", "macros", "signal"] }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
+anyhow = "1"
+rusqlite = { version = "0.31", features = ["bundled"] }
+
+
+[dev-dependencies]
+temp-env = "0.3"
