@@ -163,10 +163,22 @@ impl DaemonClient {
         let (tx, rx) = oneshot::channel();
         self.pending.lock().await.insert(id, tx);
         let req = RpcRequest { id, method: method.to_string(), params };
+        // Un solo write con el '\n' incluido: con llamadas concurrentes sobre
+        // fds duplicados, dos writes separados pueden entrelazar bytes de
+        // requests distintos y corromper el framing NDJSON del daemon.
+        let mut line = req.encode();
+        line.push('\n');
         let mut sock = tokio::net::UnixStream::from_std(std_s)?;
-        sock.write_all(req.encode().as_bytes()).await?;
-        sock.write_all(b"\n").await?;
-        let res = rx.await.map_err(|_| DaemonError::Socket("socket cerrado".into()))?;
+        sock.write_all(line.as_bytes()).await?;
+        // Timeout defensivo: si el daemon nunca responde, el caller recibe un
+        // error visible (Reintentar en la UI) en vez de colgarse para siempre.
+        let res = match tokio::time::timeout(Duration::from_secs(60), rx).await {
+            Err(_) => {
+                self.pending.lock().await.remove(&id);
+                return Err(DaemonError::Socket(format!("timeout de 60s esperando '{method}'")));
+            }
+            Ok(r) => r.map_err(|_| DaemonError::Socket("socket cerrado".into()))?,
+        };
         res.map_err(DaemonError::Rpc)
     }
 

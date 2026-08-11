@@ -69,6 +69,11 @@ pub struct State {
     pub current_chapter: usize,
     /// Páginas (paths en disco de las imágenes ya descargadas/resueltas).
     pub page_paths: Vec<PathBuf>,
+    /// Dimensiones (w, h) por página, paralelo a `page_paths`. (0,0) = aún
+    /// desconocidas. Se usan para el render ventaneado del webtoon.
+    pub page_dims: Vec<(u32, u32)>,
+    /// Offset relativo (0..1) del scroll webtoon, para el ventaneo.
+    pub scroll_y: f32,
     /// Índice de página actual (modo `Paginated`).
     pub current_page: usize,
     /// `true` mientras se cargan/resuelven/descargan las páginas.
@@ -97,8 +102,10 @@ pub enum Message {
     PagesFetched(Result<Vec<crate::core::models::Page>, crate::core::error::DaemonError>),
     /// Respuesta de `source_headers`.
     HeadersFetched(Result<HashMap<String, String>, crate::core::error::DaemonError>),
-    /// Una página se descargó (path en disco, o `None` si falló).
-    PageDownloaded { index: usize, path: Option<PathBuf> },
+    /// Una página se descargó (path en disco + dimensiones, o `None` si falló).
+    PageDownloaded { index: usize, path: Option<(PathBuf, (u32, u32))> },
+    /// Scroll del webtoon (offset relativo 0..1) para el render ventaneado.
+    Scrolled(f32),
     /// Página anterior (modo Paginated).
     PrevPage,
     /// Página siguiente (modo Paginated).
@@ -136,6 +143,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         Message::Load(ch) => {
             state.reader.chapter = Some(ch.clone());
             state.reader.page_paths.clear();
+            state.reader.page_dims.clear();
+            state.reader.scroll_y = 0.0;
             state.reader.current_page = 0;
             state.reader.loading = true;
             state.reader.error = None;
@@ -163,6 +172,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             if let Some(d) = d {
                 let d_headers = d.clone();
                 let src_headers = src.clone();
+                eprintln!("[reader] Load: pidiendo pages+headers src={src}");
                 let pages_task = Task::perform(
                     async move { d.chapter_pages(&src, &ch).await },
                     AppMessage::ReaderPagesFetched,
@@ -178,6 +188,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
         }
         Message::PagesFetched(Ok(pages)) => {
+            eprintln!("[reader] PagesFetched OK: {} páginas (headers={})", pages.len(), state.reader.headers.len());
             if pages.is_empty() {
                 state.reader.loading = false;
                 state.reader.error = Some("No se encontraron páginas.".into());
@@ -196,12 +207,32 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 tasks.push(Task::perform(
                     async move {
                         if let Some(d) = daemon {
-                            let final_url = d
-                                .page_url(&page.source, &page)
+                            let final_url = match d.page_url(&page.source, &page).await {
+                                Ok(u) => u,
+                                Err(e) => {
+                                    eprintln!("[reader] page {i}: page_url ERR {e}");
+                                    page.url.clone()
+                                }
+                            };
+                            let path = match cache.get(&final_url, &headers).await {
+                                Ok(p) => Some(p),
+                                Err(e) => {
+                                    eprintln!("[reader] page {i}: descarga ERR {e}");
+                                    None
+                                }
+                            };
+                            // Dimensiones + cap a los límites de textura de
+                            // wgpu (decode/resize en thread aparte, una vez).
+                            let entry = match path {
+                                Some(p) => tokio::task::spawn_blocking(move || {
+                                    fit_page_to_texture_limits(&p).map(|dims| (p, dims))
+                                })
                                 .await
-                                .unwrap_or_else(|_| page.url.clone());
-                            let path = cache.get(&final_url, &headers).await.ok();
-                            (i, path)
+                                .ok()
+                                .flatten(),
+                                None => None,
+                            };
+                            (i, entry)
                         } else {
                             (i, None)
                         }
@@ -214,6 +245,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::batch(tasks)
         }
         Message::PagesFetched(Err(e)) => {
+            eprintln!("[reader] PagesFetched ERR: {e}");
             state.reader.loading = false;
             state.reader.error = Some(e.to_string());
             Task::none()
@@ -227,18 +259,24 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::PageDownloaded { index, path } => {
-            // Asegura que `page_paths` tiene espacio para este índice.
+            eprintln!("[reader] PageDownloaded idx={index} ok={}", path.is_some());
+            // Asegura que `page_paths`/`page_dims` tienen espacio para este índice.
             while state.reader.page_paths.len() <= index {
                 state.reader.page_paths.push(PathBuf::new());
+                state.reader.page_dims.push((0, 0));
             }
-            if let Some(p) = path {
+            if let Some((p, dims)) = path {
                 state.reader.page_paths[index] = p;
+                state.reader.page_dims[index] = dims;
             }
             // Cuando la primera página llega, deja de cargar.
             if !state.reader.page_paths.is_empty() {
                 state.reader.loading = false;
             }
-            // Prefetch del siguiente capítulo en background si estamos cerca.
+            Task::none()
+        }
+        Message::Scrolled(y) => {
+            state.reader.scroll_y = if y.is_finite() { y.clamp(0.0, 1.0) } else { 0.0 };
             Task::none()
         }
         Message::PrevPage => {
@@ -355,6 +393,27 @@ fn update_history(state: &AppState) {
     }
 }
 
+/// Límite de textura 2D de wgpu (8192 típico); las páginas más grandes
+/// (strips webtoon) fallan `create_texture` — se re-escalan una vez en disco.
+const MAX_TEX: u32 = 8192;
+
+/// Lee las dimensiones de la página (header, sin decode); si exceden el
+/// límite de textura, re-escala el archivo en sitio. Devuelve (w, h) finales,
+/// o `None` si el archivo no es una imagen decodificable.
+fn fit_page_to_texture_limits(path: &std::path::Path) -> Option<(u32, u32)> {
+    let (w, h) = ::image::image_dimensions(path).ok()?;
+    if w <= MAX_TEX && h <= MAX_TEX {
+        return Some((w, h));
+    }
+    let img = ::image::open(path).ok()?;
+    let scale = MAX_TEX as f32 / w.max(h) as f32;
+    let nw = ((w as f32 * scale) as u32).max(1);
+    let nh = ((h as f32 * scale) as u32).max(1);
+    let resized = img.resize(nw, nh, ::image::imageops::FilterType::Triangle);
+    resized.save(path).ok()?;
+    Some((nw, nh))
+}
+
 /// Tint aproximado del filtro de color (iced no soporta matrices de color
 /// sobre imágenes; se superpone una capa translúcida sobre la página).
 fn filter_tint(f: ColorFilter) -> Option<Color> {
@@ -408,26 +467,60 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .into()
     } else {
         match state.reader.read_mode {
-            // Tira continua centrada (spacing 0: los webtoons son un strip
-            // sin cortes), max 900px de ancho como el original.
-            ReadMode::Webtoon => scrollable(
-                container(
-                    Column::with_children(
-                        state
-                            .reader
-                            .page_paths
-                            .iter()
-                            .filter(|p| p.as_os_str().len() > 0) // skip placeholders vacíos
-                            .map(|p| page_element(p, ContentFit::Contain))
-                            .collect::<Vec<_>>(),
-                    )
-                    .spacing(0)
-                    .max_width(900),
-                )
-                .center_x(Length::Fill),
-            )
-            .height(Length::Fill)
-            .into(),
+            // Tira continua centrada (spacing 0, max 900px). Render VENTANEADO:
+            // sólo las páginas cerca del viewport se materializan como imagen;
+            // el resto son espaciadores con su altura real. Sin esto, iced sube
+            // TODAS las texturas a la GPU y revienta la VRAM (crash de wgpu).
+            ReadMode::Webtoon => {
+                let display_w = state.window_size.0.min(900.0).max(300.0);
+                let viewport_h = state.window_size.1.max(400.0);
+
+                // (índice, altura escalada al ancho de display) de las listas.
+                let entries: Vec<(usize, f32)> = state
+                    .reader
+                    .page_paths
+                    .iter()
+                    .enumerate()
+                    .filter(|(_, p)| p.as_os_str().len() > 0)
+                    .map(|(i, _)| {
+                        let (w, h) = state.reader.page_dims.get(i).copied().unwrap_or((0, 0));
+                        let scaled = if w > 0 {
+                            h as f32 * display_w / w as f32
+                        } else {
+                            viewport_h
+                        };
+                        (i, scaled)
+                    })
+                    .collect();
+                let total: f32 = entries.iter().map(|(_, h)| h).sum();
+                let cur_top = state.reader.scroll_y * (total - viewport_h).max(0.0);
+                let lo = cur_top - viewport_h; // 1 viewport de margen arriba
+                let hi = cur_top + 2.0 * viewport_h; // 2 abajo
+
+                let mut col = Column::new().spacing(0).max_width(900);
+                let mut y = 0.0;
+                for (idx, h) in entries {
+                    if y + h >= lo && y <= hi {
+                        col = col.push(page_element(
+                            &state.reader.page_paths[idx],
+                            ContentFit::Contain,
+                        ));
+                    } else {
+                        col = col.push(iced::widget::Space::new(
+                            Length::Fill,
+                            Length::Fixed(h),
+                        ));
+                    }
+                    y += h;
+                }
+
+                scrollable(container(col).center_x(Length::Fill))
+                    .on_scroll(|vp| {
+                        AppMessage::Reader(Message::Scrolled(vp.relative_offset().y))
+                    })
+                    .height(Length::Fill)
+                    .into()
+            }
             ReadMode::Paginated => {
                 let current = state
                     .reader
