@@ -7,7 +7,7 @@
 //! `DaemonClient`. Los resultados aterrizan en el reducer global:
 //! `CatalogListed` (carga inicial, reemplaza) y `CatalogMoreListed`
 //! (paginación, agrega).
-use iced::widget::{button, column, pick_list, row, scrollable, text, text_input};
+use iced::widget::{button, column, container, pick_list, row, scrollable, text, text_input};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -157,6 +157,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     )
     .on_input(|q| AppMessage::Browse(Message::QueryChanged(q)))
     .on_submit(AppMessage::Browse(Message::Refresh))
+    .icon(text_input::Icon {
+        font: icon::ICON_FONT,
+        code_point: icon::SEARCH,
+        size: Some(iced::Pixels(16.0)),
+        spacing: 8.0,
+        side: text_input::Side::Left,
+    })
     .style(crate::theme::search_input)
     .padding([8, 12]);
 
@@ -192,19 +199,28 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         text("").into()
     };
 
-    let scroll_content = column![grid, footer].spacing(16);
+    // Contenido del scroll: grid + footer, o spinner centrado en carga
+    // inicial (sin resultados aún). NUNCA se añade nada después de un
+    // scrollable con height(Fill) — eso rompe el layout y "tapa" el grid.
+    let body: Element<'_, AppMessage> = if state.browse.loading && state.browse.list.is_empty() {
+        container(text("Cargando…").size(16).color(palette::TEXT_MUTED))
+            .width(Length::Fill)
+            .center_x(Length::Fill)
+            .padding(40)
+            .into()
+    } else {
+        column![grid, footer].spacing(16).into()
+    };
 
-    let mut col = column![
+    column![
         header,
-        scrollable(scroll_content)
+        scrollable(body)
             .on_scroll(|vp| {
                 let off = vp.relative_offset();
                 AppMessage::Browse(Message::Scrolled(off.y as f32))
             })
             .height(Length::Fill),
-    ];
-    if state.browse.loading {
-        col = col.push(text("Cargando…").size(14).color(palette::TEXT_MUTED));
-    }
-    col.spacing(16).into()
+    ]
+    .spacing(16)
+    .into()
 }

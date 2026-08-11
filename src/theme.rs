@@ -242,6 +242,57 @@ pub fn card_container(_theme: &Theme) -> container::Style {
     }
 }
 
+/// Panel flotante del lector (barra inferior / panel de filtros): superficie
+/// elevada translúcida con radio grande — espejo del panel del original
+/// (surface al 92% + rounded 12).
+pub fn reader_panel(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { a: 0.95, ..palette::ELEVATED }.into()),
+        text_color: Some(palette::TEXT),
+        border: Border {
+            color: Color { a: 0.85, ..palette::BORDER },
+            width: 1.0,
+            radius: radius(14.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Chip translúcido del lector (contador de páginas flotante).
+pub fn reader_chip(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.55 }.into()),
+        text_color: Some(palette::TEXT),
+        border: Border {
+            color: Color { a: 0.35, ..palette::BORDER },
+            width: 1.0,
+            radius: radius(999.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Opción del panel del lector (filtros/modo): activa = tinte acento.
+pub fn panel_option(active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let (bg, fg) = match (active, status) {
+            (true, _) => (Some(palette::ACCENT_TINT.into()), palette::TEXT),
+            (false, button::Status::Hovered) => (Some(palette::HOVER.into()), palette::TEXT),
+            (false, _) => (None, palette::TEXT_MUTED),
+        };
+        button::Style {
+            background: bg,
+            text_color: fg,
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: radius(8.0),
+            },
+            ..Default::default()
+        }
+    }
+}
+
 /// Contenedor del área de contenido (fondo BG, padding por el caller).
 pub fn content_container(_theme: &Theme) -> container::Style {
     container::Style {

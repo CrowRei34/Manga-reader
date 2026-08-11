@@ -78,11 +78,12 @@ pub fn cover_card<'a>(
             .height(Length::Fixed(COVER_H))
             .content_fit(ContentFit::Cover)
             .into(),
+        // OJO: `center_x(Length)` SOBREESCRIBE el width/height — pasarle
+        // `Fill` aquí infla el placeholder dentro de scrollables (layout
+        // infinito que tapa el header/búsqueda). Centrar con el tamaño fijo.
         None => container(icon::glyph(icon::IMAGE, 40, palette::TEXT_DIM))
-            .width(Length::Fixed(COVER_W))
-            .height(Length::Fixed(COVER_H))
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .center_x(Length::Fixed(COVER_W))
+            .center_y(Length::Fixed(COVER_H))
             .style(crate::theme::card_container)
             .into(),
     };

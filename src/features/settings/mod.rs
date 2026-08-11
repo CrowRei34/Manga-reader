@@ -50,10 +50,8 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let preview_covers = (0..4)
         .map(|_| {
             container(icon::glyph(icon::IMAGE, 28, palette::TEXT_DIM))
-                .width(Length::Fixed(60.0))
-                .height(Length::Fixed(90.0))
-                .center_x(Length::Fill)
-                .center_y(Length::Fill)
+                .center_x(Length::Fixed(60.0))
+                .center_y(Length::Fixed(90.0))
                 .style(crate::theme::card_container)
                 .into()
         })

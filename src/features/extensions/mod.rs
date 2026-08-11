@@ -73,7 +73,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         })
         .collect();
 
-    column![header, search, scrollable(column(rows).spacing(2))]
+    column![header, search, scrollable(column(rows).spacing(2)).height(Length::Fill)]
         .spacing(12)
         .into()
 }

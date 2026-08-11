@@ -3,7 +3,7 @@
 //! - Fila de chips de categorías ("Todas" activa + categorías + "+ Nueva")
 //! - Grid scrollable de cover cards
 use iced::widget::{button, column, row, scrollable, text, Row};
-use iced::{Element, Task};
+use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::core::db;
@@ -124,7 +124,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         )]
     };
 
-    column![title_row, chips_row, scrollable(grid)]
+    column![title_row, chips_row, scrollable(grid).height(Length::Fill)]
         .spacing(16)
         .into()
 }

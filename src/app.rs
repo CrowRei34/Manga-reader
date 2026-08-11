@@ -324,6 +324,27 @@ pub fn subscription(state: &AppState) -> Subscription<Message> {
             .map(|(_id, size)| Message::WindowResized(size.width, size.height)),
     );
 
+    // Atajos de teclado del lector: ←/→ páginas, Esc salir, F fullscreen.
+    if state.screen == Screen::Reader {
+        subs.push(iced::keyboard::on_key_press(|key, _mods| {
+            use iced::keyboard::key::Named;
+            use iced::keyboard::Key;
+            match key.as_ref() {
+                Key::Named(Named::ArrowLeft) => {
+                    Some(Message::Reader(reader::Message::PrevPage))
+                }
+                Key::Named(Named::ArrowRight) => {
+                    Some(Message::Reader(reader::Message::NextPage))
+                }
+                Key::Named(Named::Escape) => Some(Message::Reader(reader::Message::Back)),
+                Key::Character("f") => {
+                    Some(Message::Reader(reader::Message::ToggleFullscreen))
+                }
+                _ => None,
+            }
+        }));
+    }
+
     if subs.is_empty() {
         Subscription::none()
     } else {
@@ -332,14 +353,20 @@ pub fn subscription(state: &AppState) -> Subscription<Message> {
 }
 
 /// Vista raíz: elige el contenido según `screen` y lo envuelve con el
-/// nav rail del shell.
+/// nav rail del shell. EXCEPCIÓN: el Reader va fullscreen (sin sidebar,
+/// fondo negro puro) — espejo del lector del app original.
 pub fn view(state: &AppState) -> Element<'_, Message> {
+    // Reader: fullscreen negro, sin nav rail.
+    if state.screen == Screen::Reader {
+        return reader::view(state);
+    }
+
     let content: Element<Message> = match state.screen {
         Screen::Home => home::view(state),
         Screen::Browse => browse::view(state),
         Screen::Library => library::view(state),
         Screen::Details => details::view(state),
-        Screen::Reader => reader::view(state),
+        Screen::Reader => unreachable!(), // handled above
         Screen::Downloads => downloads::view(state),
         Screen::Settings => settings::view(state),
         Screen::Extensions => extensions::view(state),

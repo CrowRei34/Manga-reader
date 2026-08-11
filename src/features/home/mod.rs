@@ -110,7 +110,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         section_header("Continuar leyendo"),
         recent_row,
         section_header("Añadidos recientemente"),
-        scrollable(grid),
+        scrollable(grid).height(Length::Fill),
     ]
     .spacing(16)
     .into()

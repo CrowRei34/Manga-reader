@@ -211,10 +211,8 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .content_fit(ContentFit::Cover)
             .into(),
         None => container(icon::glyph(icon::IMAGE, 56, palette::TEXT_DIM))
-            .width(Length::Fixed(COVER_W * 1.4))
-            .height(Length::Fixed(COVER_H * 1.4))
-            .center_x(Length::Fill)
-            .center_y(Length::Fill)
+            .center_x(Length::Fixed(COVER_W * 1.4))
+            .center_y(Length::Fixed(COVER_H * 1.4))
             .style(crate::theme::card_container)
             .into(),
     };
