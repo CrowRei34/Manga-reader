@@ -7,7 +7,7 @@ use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use crate::theme::palette;
-use crate::widgets::icon;
+
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -77,7 +77,3 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .spacing(12)
         .into()
 }
-
-// icon import kept for future header icon parity with the original design.
-#[allow(unused_imports)]
-use icon as _icon;

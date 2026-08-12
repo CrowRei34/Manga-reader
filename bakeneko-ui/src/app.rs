@@ -180,8 +180,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             state.browse.list = m;
             state.browse.loading = false;
             // Descarga las portadas del catálogo (async, una por URL nueva).
-            let list = state.browse.list.clone();
-            crate::widgets::cover::fetch_covers(state, &list)
+            crate::widgets::cover::fetch_covers(state, &state.browse.list)
         }
         Message::CatalogListed(Err(e)) => {
             state.browse.loading = false;
@@ -194,9 +193,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
                 state.browse.has_more = false;
                 Task::none()
             } else {
-                state.browse.list.extend(more.clone());
-                let list = state.browse.list.clone();
-                crate::widgets::cover::fetch_covers(state, &list)
+                let start_idx = state.browse.list.len();
+                state.browse.list.extend(more);
+                crate::widgets::cover::fetch_covers(state, &state.browse.list[start_idx..])
             }
         }
         Message::CatalogMoreListed(Err(e)) => {
@@ -229,9 +228,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Library(m) => library::update(state, m),
         Message::LibraryLoaded(Ok(list)) => {
             state.library = list;
-            let list = state.library.clone();
-            crate::widgets::cover::fetch_covers(state, &list)
+            crate::widgets::cover::fetch_covers(state, &state.library)
         }
+
         Message::LibraryLoaded(Err(e)) => {
             state.error = Some(e.to_string());
             Task::none()

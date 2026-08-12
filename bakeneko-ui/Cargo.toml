@@ -5,12 +5,18 @@ edition = "2021"
 
 [dependencies]
 bakeneko-core = { path = "../bakeneko-core" }
-iced = { version = "0.13", features = ["tokio", "image", "advanced", "lazy"] }
+iced = { version = "0.13", features = ["tokio", "image", "advanced", "lazy", "tiny-skia"] }
+
 tokio = { version = "1", features = ["rt-multi-thread", "process", "io-util", "net", "sync", "time", "macros", "signal"] }
 image = { version = "0.25", default-features = false, features = ["png", "jpeg", "webp"] }
 anyhow = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
+async-trait = "0.1"
 
 
 [dev-dependencies]
 temp-env = "0.3"
+serde_json = "1"
+serde = { version = "1", features = ["derive"] }
+
+

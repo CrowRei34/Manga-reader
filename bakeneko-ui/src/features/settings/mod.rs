@@ -15,10 +15,6 @@ pub enum Message {
     ThemeChanged(String),
     AccentChanged(String),
     DensityChanged(String),
-    ConcurrencyChanged(u32),
-    LibraryViewChanged(String),
-    /// Cambio de sección ("Apariencia" | "Lector").
-    SectionChanged(String),
 }
 
 /// Reducer del feature Settings. Muta `state.settings` y persiste de
@@ -29,10 +25,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         Message::ThemeChanged(t) => state.settings.theme = t,
         Message::AccentChanged(a) => state.settings.accent = a,
         Message::DensityChanged(d) => state.settings.library_view = d,
-        Message::ConcurrencyChanged(n) => state.settings.download_concurrency = n,
-        Message::LibraryViewChanged(v) => state.settings.library_view = v,
-        Message::SectionChanged(_) => {}
     }
+
     if let Err(e) = save(&state.settings) {
         state.error = Some(format!("No se pudo guardar la configuración: {e}"));
     }

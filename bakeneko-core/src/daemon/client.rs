@@ -40,7 +40,6 @@ impl DaemonClient {
 
     pub fn default_jar_path() -> PathBuf {
         let exec_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
-        let candidates: Vec<PathBuf> = vec![];
         // Espejo de defaultJarPath(): exec dir + 'daemon/build/libs/bakeneko-daemon.jar' walk-up.
         if let Some(dir) = &exec_dir {
             let mut c: Vec<PathBuf> = vec![dir.join("bakeneko-daemon.jar"), dir.join("lib/bakeneko-daemon.jar")];
@@ -49,10 +48,11 @@ impl DaemonClient {
                 c.push(cur.join("daemon/build/libs/bakeneko-daemon.jar"));
                 cur = cur.parent().map(|p| p.to_path_buf()).unwrap_or(cur.clone());
             }
-            return c.into_iter().find(|p| p.exists()).unwrap_or(candidates.first().cloned().unwrap_or_else(|| dir.join("bakeneko-daemon.jar")));
+            return c.into_iter().find(|p| p.exists()).unwrap_or_else(|| dir.join("bakeneko-daemon.jar"));
         }
         PathBuf::from("bakeneko-daemon.jar")
     }
+
 
     async fn resolve_java() -> String {
         if let Ok(exec) = std::env::current_exe() {

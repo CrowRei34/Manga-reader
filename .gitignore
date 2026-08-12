@@ -15,3 +15,8 @@
 # Graphify (knowledge graph - generated, not committed)
 /graphify-out/
 .graphify*
+
+# Java Daemon Gradle build outputs
+/daemon/build/
+/daemon/.gradle/
+

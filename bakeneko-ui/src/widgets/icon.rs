@@ -3,7 +3,8 @@
 //! Uso: `icon::home()` devuelve un `Text` con la fuente de íconos aplicada.
 //! Codepoints: https://fonts.google.com/icons (Material Icons, ligaduras off).
 use iced::widget::text;
-use iced::{Color, Element, Font};
+use iced::{Color, Font};
+
 
 /// Fuente de íconos Material. iced la registra en `main` vía
 /// `.font(include_bytes!("MaterialIcons.ttf"))`; el nombre resuelve por el
@@ -26,10 +27,8 @@ pub const CLOSE: char = '\u{e5cd}';
 pub const PAUSE: char = '\u{e034}';
 pub const CHECK: char = '\u{e5ca}';
 pub const FILTER: char = '\u{e152}';
-pub const ADD: char = '\u{e145}';
 pub const ERROR: char = '\u{e001}';          // error_outline (círculo con !)
 pub const DOWNLOAD_FOR_OFFLINE: char = '\u{e171}';
-pub const EDIT: char = '\u{e3c9}';
 pub const IMAGE: char = '\u{e3f4}';          // image (placeholder de portada)
 
 /// Texto de ícono con tamaño y color. El caller encadena `.into()`.
@@ -37,7 +36,3 @@ pub fn glyph(code: char, size: u16, color: Color) -> text::Text<'static> {
     text(code.to_string()).font(ICON_FONT).size(size).color(color)
 }
 
-/// Helper para botones: ícono como Element directo.
-pub fn as_element<'a, M: 'a>(code: char, size: u16, color: Color) -> Element<'a, M> {
-    glyph(code, size, color).into()
-}

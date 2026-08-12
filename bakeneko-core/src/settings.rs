@@ -32,11 +32,16 @@ pub fn load() -> Settings {
 
 pub fn save(s: &Settings) -> std::io::Result<()> {
     let path = settings_path();
-    fs::create_dir_all(path.parent().unwrap())?;
+    if let Some(parent) = path.parent() {
+        fs::create_dir_all(parent)?;
+    }
     let tmp = path.with_extension("json.tmp");
+    let json = serde_json::to_string_pretty(s)
+        .map_err(|e| std::io::Error::new(std::io::ErrorKind::InvalidData, e))?;
     let mut f = fs::File::create(&tmp)?;
-    f.write_all(serde_json::to_string_pretty(s).unwrap().as_bytes())?;
+    f.write_all(json.as_bytes())?;
     f.sync_all()?;
     fs::rename(&tmp, &path)?;
     Ok(())
 }
+

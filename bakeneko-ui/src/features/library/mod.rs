@@ -2,7 +2,7 @@
 //! - Título "Biblioteca" + ícono de filtro
 //! - Fila de chips de categorías ("Todas" activa + categorías + "+ Nueva")
 //! - Grid scrollable de cover cards
-use iced::widget::{button, column, row, scrollable, text, Row};
+use iced::widget::{button, column, container, row, scrollable, text, Row};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -124,7 +124,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         )]
     };
 
-    column![title_row, chips_row, scrollable(grid).height(Length::Fill)]
-        .spacing(16)
-        .into()
+    let header = container(column![title_row, chips_row].spacing(16))
+        .style(crate::theme::content_container)
+        .padding(iced::Padding { top: 0.0, bottom: 8.0, left: 0.0, right: 0.0 });
+
+    column![
+        header,
+        container(scrollable(grid).height(Length::Fill)).clip(true).height(Length::Fill)
+    ]
+    .spacing(8)
+    .into()
 }

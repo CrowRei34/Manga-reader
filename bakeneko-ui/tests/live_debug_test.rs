@@ -3,7 +3,10 @@ use bakeneko::core::daemon::rpc::{RpcRequest, RpcResponse};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[tokio::test]
+#[ignore = "requiere daemon Java corriendo activamente en socket Unix"]
 async fn live_daemon_catalog_count() {
+
+
     let sock = std::env::var("XDG_RUNTIME_DIR")
         .map(|r| format!("{r}/bakeneko/daemon.sock"))
         .unwrap_or_else(|_| "/run/user/1000/bakeneko/daemon.sock".into());

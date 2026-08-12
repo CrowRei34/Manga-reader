@@ -31,8 +31,8 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::runtime::Runtime;
 use tokio::sync::broadcast;
+
 
 #[derive(Debug, Clone)]
 pub enum DownloadEvent {
@@ -47,15 +47,24 @@ pub enum DownloadEvent {
     Errored(i64, String, String),
 }
 
+fn block_on_compat<F: std::future::Future>(f: F) -> F::Output {
+    match tokio::runtime::Handle::try_current() {
+        Ok(handle) => tokio::task::block_in_place(|| handle.block_on(f)),
+        Err(_) => tokio::runtime::Builder::new_current_thread()
+            .enable_all()
+            .build()
+            .expect("failed to build fallback tokio runtime")
+            .block_on(f),
+    }
+}
+
+
 pub struct Inner {
     pub db: Arc<Mutex<Connection>>,
     pub daemon: Arc<dyn MangaSourceApi>,
     pub cache: Arc<ImageCache>,
     pub root: PathBuf,
     pub concurrency: usize,
-    /// Runtime propio para ejecutar los futures del daemon/cache desde el
-    /// contexto síncrono de `poll_once`.
-    rt: Runtime,
 }
 
 #[derive(Clone)]
@@ -73,8 +82,6 @@ impl DownloadManager {
     ) -> Self {
         let (tx, _) = broadcast::channel(64);
         let root = Xdg::downloads_root();
-        let rt = tokio::runtime::Runtime::new()
-            .expect("failed to build tokio runtime for DownloadManager");
         Self {
             inner: Arc::new(Inner {
                 db,
@@ -82,7 +89,6 @@ impl DownloadManager {
                 cache,
                 root,
                 concurrency,
-                rt,
             }),
             tx,
         }
@@ -164,18 +170,14 @@ impl DownloadManager {
             read: false,
         };
 
-        let pages = inner.rt.block_on(inner.daemon.chapter_pages(&source, &ch))?;
-        let headers: HashMap<String, String> = inner
-            .rt
-            .block_on(inner.daemon.source_headers(&source))
+        let pages = block_on_compat(inner.daemon.chapter_pages(&source, &ch))?;
+        let headers: HashMap<String, String> = block_on_compat(inner.daemon.source_headers(&source))
             .unwrap_or_default();
         let total = pages.len() as i32;
         let mut done = 0;
         for p in &pages {
-            let url = inner.rt.block_on(inner.daemon.page_url(&source, p))?;
-            let _ = inner
-                .rt
-                .block_on(inner.cache.get(&url, &headers))?;
+            let url = block_on_compat(inner.daemon.page_url(&source, p))?;
+            let _ = block_on_compat(inner.cache.get(&url, &headers))?;
             done += 1;
             {
                 let conn = inner.db.lock().unwrap();

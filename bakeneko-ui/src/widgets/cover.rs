@@ -36,6 +36,7 @@ pub const COVER_H: f32 = 240.0;
 /// `ImageCache` y aterriza en `Message::CoverLoaded`.
 pub fn fetch_covers(state: &AppState, mangas: &[Manga]) -> Task<AppMessage> {
     let mut tasks = Vec::new();
+    let headers = state.cover_headers.clone();
     for m in mangas {
         if let Some(url) = &m.cover_url {
             if state.covers.contains_key(url) {
@@ -43,7 +44,7 @@ pub fn fetch_covers(state: &AppState, mangas: &[Manga]) -> Task<AppMessage> {
             }
             let url = url.clone();
             let cache = state.cache.clone();
-            let headers = state.cover_headers.clone();
+            let headers = headers.clone();
             tasks.push(Task::perform(
                 async move {
                     let path = cache.get(&url, &headers).await.ok();
@@ -53,6 +54,7 @@ pub fn fetch_covers(state: &AppState, mangas: &[Manga]) -> Task<AppMessage> {
             ));
         }
     }
+
     if tasks.is_empty() {
         Task::none()
     } else {

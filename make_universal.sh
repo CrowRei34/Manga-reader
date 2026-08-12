@@ -4,12 +4,15 @@ set -euo pipefail
 APP_VERSION="${1:-0.1.0}"
 APPIMAGE_DIR="AppDir"
 
+chmod -R +w "$APPIMAGE_DIR" 2>/dev/null || true
 rm -rf "$APPIMAGE_DIR" && mkdir -p "$APPIMAGE_DIR/usr/bin" "$APPIMAGE_DIR/usr/lib" "$APPIMAGE_DIR/usr/jre"
 
-cargo build --release
+if [ "${SKIP_RUST_BUILD:-0}" != "1" ]; then
+  cargo build --release
+fi
 
 cp target/release/bakeneko "$APPIMAGE_DIR/usr/bin/"
-
+cp -r assets "$APPIMAGE_DIR/usr/bin/"
 # JAR del daemon: si no existe (dev machine sin el proyecto Java), se advierte
 # y se omite — la app igual arranca y reporta el fallo de daemon en la UI.
 if [ -f daemon/build/libs/bakeneko-daemon.jar ]; then
@@ -84,4 +87,5 @@ if [ ! -f appimagetool-x86_64.AppImage ]; then
   wget -q https://github.com/AppImage/AppImageKit/releases/download/continuous/appimagetool-x86_64.AppImage
   chmod +x appimagetool-x86_64.AppImage
 fi
+unset SOURCE_DATE_EPOCH
 ARCH=x86_64 ./appimagetool-x86_64.AppImage "$APPIMAGE_DIR" "Bakeneko-Universal-v${APP_VERSION}.AppImage"

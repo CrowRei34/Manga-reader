@@ -105,13 +105,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         crate::widgets::cover::details_msg,
     );
 
-    column![
+    let body = column![
         title,
         section_header("Continuar leyendo"),
         recent_row,
         section_header("Añadidos recientemente"),
-        scrollable(grid).height(Length::Fill),
+        grid,
     ]
-    .spacing(16)
-    .into()
+    .spacing(16);
+
+    scrollable(body).height(Length::Fill).into()
 }

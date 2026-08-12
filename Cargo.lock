@@ -307,10 +307,13 @@ name = "bakeneko"
 version = "0.1.0"
 dependencies = [
  "anyhow",
+ "async-trait",
  "bakeneko-core",
  "iced",
  "image 0.25.10",
  "rusqlite",
+ "serde",
+ "serde_json",
  "temp-env",
  "tokio",
 ]
@@ -327,6 +330,7 @@ dependencies = [
  "serde",
  "serde_json",
  "sha2",
+ "temp-env",
  "thiserror 1.0.69",
  "tokio",
 ]

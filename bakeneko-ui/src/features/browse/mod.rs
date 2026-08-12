@@ -212,15 +212,23 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         column![grid, footer].spacing(16).into()
     };
 
+    let header_container = container(header)
+        .style(crate::theme::content_container)
+        .padding(iced::Padding { top: 0.0, bottom: 8.0, left: 0.0, right: 0.0 });
+
     column![
-        header,
-        scrollable(body)
-            .on_scroll(|vp| {
-                let off = vp.relative_offset();
-                AppMessage::Browse(Message::Scrolled(off.y as f32))
-            })
-            .height(Length::Fill),
+        header_container,
+        container(
+            scrollable(body)
+                .on_scroll(|vp| {
+                    let off = vp.relative_offset();
+                    AppMessage::Browse(Message::Scrolled(off.y as f32))
+                })
+                .height(Length::Fill)
+        )
+        .clip(true)
+        .height(Length::Fill),
     ]
-    .spacing(16)
+    .spacing(8)
     .into()
 }

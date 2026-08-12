@@ -14,3 +14,7 @@ thiserror = "1"
 anyhow = "1"
 async-trait = "0.1"
 iced = { version = "0.13", features = ["image"] }
+
+[dev-dependencies]
+temp-env = "0.3"
+
