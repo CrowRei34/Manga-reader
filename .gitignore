@@ -1,7 +1,16 @@
 /target
+/*/target/
 /AppDir
 /appimagetool-*.AppImage
 /*.AppImage
+
+# Subcrate build dirs (workspace members have their own target/ dirs).
+/bakeneko-core/target/
+/bakeneko-ui/target/
+
+# Lib crates don't commit Cargo.lock (keep single source of truth at workspace root).
+/bakeneko-core/Cargo.lock
+/bakeneko-ui/Cargo.lock
 
 # Graphify (knowledge graph - generated, not committed)
 /graphify-out/

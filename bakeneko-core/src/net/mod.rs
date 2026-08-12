@@ -76,6 +76,10 @@ impl ImageCache {
         for (k, v) in headers {
             req = req.header(k, v);
         }
+        // Fallback para Comick: requiere Referer para descargar imágenes desde su CDN.
+        if url.contains("comick") && !headers.keys().any(|k| k.eq_ignore_ascii_case("referer")) {
+            req = req.header("Referer", "https://comick.live/");
+        }
         let resp = req.send().await?;
         if !resp.status().is_success() {
             return Err(NetError::Http { status: resp.status(), url: url.to_string() });
