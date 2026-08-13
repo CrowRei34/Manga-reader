@@ -1,6 +1,5 @@
 # Bakeneko → Rust Implementation Plan
 
-> **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
 **Goal:** Port the Bakeneko manga reader's Dart/Flutter app to a single Rust binary (Iced UI + tokio + rusqlite) that talks to the existing Kotlin JVM daemon via the unchanged byte-compatible JSON-RPC 2.0 protocol over a Unix Domain Socket.
 
