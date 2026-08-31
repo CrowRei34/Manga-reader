@@ -24,6 +24,7 @@ fn row_to_chapter(row: &Row) -> rusqlite::Result<Chapter> {
         title: row.get(2)?,
         number: row.get(3)?,
         volume: 0,
+        language: None,
         scanlator: None,
         upload_date: 0,
         branch: None,

@@ -11,6 +11,9 @@ pub trait MangaSourceApi: Send + Sync {
     async fn ping(&self) -> Result<PingReply, DaemonError>;
     async fn list_sources(&self) -> Result<Vec<Source>, DaemonError>;
     async fn catalog_list(&self, source: &str, offset: i32, query: Option<&str>) -> Result<Vec<Manga>, DaemonError>;
+    async fn catalog_list_filtered(&self, source: &str, offset: i32, query: Option<&str>, _categories: &[String]) -> Result<Vec<Manga>, DaemonError> {
+        self.catalog_list(source, offset, query).await
+    }
     async fn manga_details(&self, source: &str, manga: &Manga) -> Result<Manga, DaemonError>;
     async fn chapter_pages(&self, source: &str, chapter: &crate::models::Chapter) -> Result<Vec<Page>, DaemonError>;
     async fn page_url(&self, source: &str, page: &Page) -> Result<String, DaemonError>;

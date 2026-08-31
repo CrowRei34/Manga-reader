@@ -17,7 +17,7 @@ import org.koitharu.kotatsu.parsers.model.MangaTag
  */
 
 @Serializable
-data class SourceDto(val id: String, val name: String)
+data class SourceDto(val id: String, val name: String, val language: String? = null)
 
 @Serializable
 data class MangaDto(
@@ -42,6 +42,7 @@ data class ChapterDto(
     val title: String,
     val number: Float = 0f,
     val volume: Int = 0,
+    val language: String? = null,
     val scanlator: String? = null,
     val uploadDate: Long = 0L,
     val branch: String? = null,
@@ -58,7 +59,11 @@ private fun parseState(name: String?): MangaState? = name?.let {
     runCatching { MangaState.valueOf(it) }.getOrNull()
 }
 
-internal fun MangaParserSource.toDto(): SourceDto = SourceDto(id = name, name = title ?: name)
+internal fun MangaParserSource.toDto(): SourceDto = SourceDto(
+    id = name,
+    name = title ?: name,
+    language = locale,
+)
 
 internal fun Manga.toDto(): MangaDto = MangaDto(
     source = (source as? MangaParserSource)?.name ?: source.name,
@@ -81,6 +86,7 @@ internal fun MangaChapter.toDto(): ChapterDto = ChapterDto(
     title = title ?: "",
     number = number,
     volume = volume,
+    language = (source as? MangaParserSource)?.locale,
     scanlator = scanlator,
     uploadDate = uploadDate,
     branch = branch,

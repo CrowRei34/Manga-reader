@@ -64,13 +64,30 @@ pub fn view<'a, M: 'a + From<NavMsg> + Clone>(
     )
     .style(crate::theme::sidebar_container)
     .width(Length::Fixed(185.0))
-    .height(Length::Fill);
+    .height(Length::Fill)
+    .clip(true);
+
+    // Explorar dibuja su cabecera hasta el borde superior para que las capas
+    // de imágenes del grid nunca sean visibles sobre la barra. El propio
+    // feature repone los 20 px alrededor de sus controles.
+    let body_padding = if *screen == Screen::Browse {
+        iced::Padding { top: 0.0, right: 20.0, bottom: 20.0, left: 20.0 }
+    } else {
+        iced::Padding::new(20.0)
+    };
 
     let body = container(content)
         .style(crate::theme::content_container)
-        .padding(iced::Padding::new(20.0))
+        .padding(body_padding)
         .width(Length::Fill)
-        .height(Length::Fill);
+        .height(Length::Fill)
+        // Los grids y scrollables pueden dibujar fuera de su layout durante
+        // un frame de resize/scroll. El clip evita que las portadas invadan
+        // visualmente el rail de navegación.
+        .clip(true);
 
-    row![sidebar, body].into()
+    row![sidebar, body]
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
 }

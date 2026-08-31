@@ -48,7 +48,7 @@ fn chapters_replace_and_mark_read() {
     let conn = setup();
     let id = manga_dao::upsert(&conn, &sample_manga("/ch"), 0).unwrap();
     let ch = Chapter { source: "MANGADEX".into(), url: "/c1".into(), title: "Cap 1".into(), number: 1.0,
-        volume: 1, scanlator: None, upload_date: 0, branch: None, blob: Default::default(), read: false };
+        volume: 1, language: Some("es".into()), scanlator: None, upload_date: 0, branch: None, blob: Default::default(), read: false };
     chapter_dao::replace_for_manga(&conn, id, &[ch]).unwrap();
     let list = chapter_dao::list_for_manga(&conn, id).unwrap();
     assert_eq!(list.len(), 1);

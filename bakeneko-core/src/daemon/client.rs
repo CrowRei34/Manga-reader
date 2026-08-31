@@ -239,6 +239,12 @@ impl MangaSourceApi for DaemonClient {
         let v = self.call("catalog.list", Some(p)).await?;
         Ok(serde_json::from_value(v)?)
     }
+    async fn catalog_list_filtered(&self, source: &str, offset: i32, query: Option<&str>, categories: &[String]) -> Result<Vec<Manga>, DaemonError> {
+        let mut p = json!({"source": source, "offset": offset, "categories": categories});
+        if let Some(q) = query { if !q.is_empty() { p["query"] = json!(q); } }
+        let v = self.call("catalog.list", Some(p)).await?;
+        Ok(serde_json::from_value(v)?)
+    }
     async fn manga_details(&self, source: &str, manga: &Manga) -> Result<Manga, DaemonError> {
         let blob = if manga.blob.is_empty() { serde_json::to_value(manga)? } else { Value::Object(manga.blob.clone()) };
         let v = self.call("manga.details", Some(json!({"source": source, "manga": blob}))).await?;

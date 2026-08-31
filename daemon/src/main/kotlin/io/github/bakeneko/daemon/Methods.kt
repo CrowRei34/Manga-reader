@@ -42,7 +42,10 @@ class Methods(private val ctx: DaemonLoaderContext) {
             val source = params.source()
             val offset = params.intOrDefault("offset", 0)
             val query = params?.optionalString("query")
-            catalog(source, offset, query)
+            val categories = params?.get("categories")?.jsonArray
+                ?.mapNotNull { (it as? JsonPrimitive)?.content }
+                ?: emptyList()
+            catalog(source, offset, query, categories)
         }
 
         "manga.details" -> {
@@ -103,17 +106,48 @@ class Methods(private val ctx: DaemonLoaderContext) {
     }
 
     private suspend fun catalog(
-        source: MangaParserSource, offset: Int, query: String?,
+        source: MangaParserSource, offset: Int, query: String?, categories: List<String>,
     ): JsonElement {
         val parser = ctx.newParserInstance(source)
         val order = parser.availableSortOrders.firstOrNull() ?: SortOrder.UPDATED
-        val filter = if (query.isNullOrBlank()) {
+        val requested = categories.flatMap(::categoryAliases).map { it.lowercase() }.toSet()
+        val tags = if (requested.isEmpty()) {
+            emptySet()
+        } else {
+            parser.getFilterOptions().availableTags.filterTo(linkedSetOf()) { tag ->
+                val title = tag.title.lowercase()
+                val key = tag.key.lowercase()
+                requested.any { alias -> title == alias || key == alias || title.contains(alias) }
+            }
+        }
+        val filter = if (query.isNullOrBlank() && tags.isEmpty()) {
             MangaListFilter.EMPTY
         } else {
-            MangaListFilter(query = query)
+            MangaListFilter(query = query, tags = tags)
         }
         val list = parser.getList(offset, order, filter)
         return json.encodeToJsonElement(list.map { it.toDto() })
+    }
+
+    private fun categoryAliases(category: String): List<String> = when (category) {
+        "action" -> listOf("action", "acción", "acao", "ação")
+        "adventure" -> listOf("adventure", "aventura")
+        "comedy" -> listOf("comedy", "comedia", "comédie")
+        "drama" -> listOf("drama", "drame")
+        "fantasy" -> listOf("fantasy", "fantasía", "fantasia", "fantastique")
+        "romance" -> listOf("romance", "romántico", "romantico")
+        "school" -> listOf("school", "school life", "escolar", "vida escolar")
+        "mystery" -> listOf("mystery", "misterio", "mystère")
+        "horror" -> listOf("horror", "terror", "horreur")
+        "sci-fi" -> listOf("sci-fi", "science fiction", "ciencia ficción", "sci fi")
+        "sports" -> listOf("sports", "deportes", "sport")
+        "isekai" -> listOf("isekai")
+        "slice-of-life" -> listOf("slice of life", "recuentos de la vida", "tranche de vie")
+        "yaoi" -> listOf("yaoi", "boys love", "boy's love", "bl")
+        "yuri" -> listOf("yuri", "girls love", "girl's love", "gl")
+        "ecchi" -> listOf("ecchi")
+        "hentai" -> listOf("hentai", "adult", "18+")
+        else -> listOf(category)
     }
 
     private suspend fun details(source: MangaParserSource, mangaDto: MangaDto): MangaDto {

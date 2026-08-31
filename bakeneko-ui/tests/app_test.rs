@@ -30,7 +30,7 @@ fn sources_listed_populates() {
     let mut s = AppState::default();
     let _task = update(
         &mut s,
-        Message::SourcesListed(Ok(vec![Source { id: "MANGADEX".into(), name: "MangaDex".into() }])),
+        Message::SourcesListed(Ok(vec![Source { id: "MANGADEX".into(), name: "MangaDex".into(), language: Some("en".into()) }])),
     );
     assert_eq!(s.sources.len(), 1);
 }

@@ -80,9 +80,11 @@ impl Default for AppState {
 pub enum Message {
     DaemonStarted(Result<PingReply, DaemonError>),
     SourcesListed(Result<Vec<Source>, DaemonError>),
-    CatalogListed(Result<Vec<Manga>, DaemonError>),
-    /// Paginación: agrega a `browse.list` (no reemplaza).
-    CatalogMoreListed(Result<Vec<Manga>, DaemonError>),
+    SearchResult {
+        generation: u64,
+        source: String,
+        result: Result<Vec<Manga>, DaemonError>,
+    },
     DaemonDied,
     NavigateTo(Screen),
     ErrorDismissed,
@@ -176,33 +178,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             state.error = Some(e.to_string());
             Task::none()
         }
-        Message::CatalogListed(Ok(m)) => {
-            state.browse.list = m;
-            state.browse.loading = false;
-            // Descarga las portadas del catálogo (async, una por URL nueva).
-            crate::widgets::cover::fetch_covers(state, &state.browse.list)
-        }
-        Message::CatalogListed(Err(e)) => {
-            state.browse.loading = false;
-            state.error = Some(e.to_string());
-            Task::none()
-        }
-        Message::CatalogMoreListed(Ok(more)) => {
-            state.browse.loading_more = false;
-            if more.is_empty() {
-                state.browse.has_more = false;
-                Task::none()
-            } else {
-                let start_idx = state.browse.list.len();
-                state.browse.list.extend(more);
-                crate::widgets::cover::fetch_covers(state, &state.browse.list[start_idx..])
-            }
-        }
-        Message::CatalogMoreListed(Err(e)) => {
-            state.browse.loading_more = false;
-            state.browse.has_more = false;
-            state.error = Some(e.to_string());
-            Task::none()
+        Message::SearchResult { generation, source, result } => {
+            browse::apply_search_result(state, generation, source, result)
         }
         Message::DaemonDied => {
             state.daemon_ready = false;

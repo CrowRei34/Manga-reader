@@ -3,6 +3,8 @@ use crate::xdg::Xdg;
 use sha2::{Digest, Sha256};
 use std::collections::HashMap;
 use std::path::PathBuf;
+use std::sync::Arc;
+use tokio::sync::{Mutex, Semaphore};
 
 /// Cache de imágenes en disco (`$XDG_CACHE_HOME/bakeneko/<sha256>.<ext>`).
 /// La extensión es REAL (sniffing de magic bytes, fallback a la ext de la
@@ -15,6 +17,11 @@ use std::path::PathBuf;
 pub struct ImageCache {
     root: PathBuf,
     client: reqwest::Client,
+    /// Evita descargar la misma portada varias veces cuando las fuentes
+    /// federadas responden casi simultáneamente.
+    inflight: Mutex<HashMap<String, Arc<Mutex<()>>>>,
+    /// Limita decodificación/red para no saturar la UI y el atlas de GPU.
+    download_slots: Semaphore,
 }
 
 impl ImageCache {
@@ -22,6 +29,8 @@ impl ImageCache {
         Self {
             root: Xdg::cache_root(),
             client: reqwest::Client::builder().user_agent("bakeneko-rs/0.1").build().unwrap(),
+            inflight: Mutex::new(HashMap::new()),
+            download_slots: Semaphore::new(6),
         }
     }
 
@@ -72,6 +81,16 @@ impl ImageCache {
         if path.exists() {
             return Ok(path);
         }
+        let url_lock = {
+            let mut inflight = self.inflight.lock().await;
+            inflight.entry(url.to_owned()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+        };
+        let _url_guard = url_lock.lock().await;
+        let path = self.cached_path(url);
+        if path.exists() {
+            return Ok(path);
+        }
+        let _slot = self.download_slots.acquire().await.expect("semaphore de portadas cerrado");
         let mut req = self.client.get(url);
         for (k, v) in headers {
             req = req.header(k, v);

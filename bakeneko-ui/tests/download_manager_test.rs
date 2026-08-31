@@ -76,6 +76,7 @@ fn sample_chapter() -> Chapter {
         title: "C1".into(),
         number: 0.0,
         volume: 0,
+        language: None,
         scanlator: None,
         upload_date: 0,
         branch: None,

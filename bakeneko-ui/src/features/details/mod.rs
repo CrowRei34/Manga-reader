@@ -10,6 +10,7 @@
 //! ```
 use iced::widget::{button, column, container, image, row, scrollable, text, Column};
 use iced::{ContentFit, Element, Length, Task};
+use std::collections::BTreeMap;
 
 use crate::app::{AppState, Message as AppMessage};
 use bakeneko_core::daemon::api::MangaSourceApi;
@@ -260,19 +261,32 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     let header_row = row![cover, column![title_block, buttons_row].spacing(12)].spacing(20);
 
-    // Lista de capítulos ordenada ascendente.
-    let mut chapters = state.details.chapters.clone();
-    chapters.sort_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal));
-    let chapter_rows: Vec<Element<'_, AppMessage>> = chapters
-        .iter()
-        .map(|c| {
+    // Agrupa por idioma y ordena numéricamente dentro de cada sección.
+    let chapter_groups = organize_chapters(&state.details.chapters);
+    let mut chapter_rows: Vec<Element<'_, AppMessage>> = Vec::new();
+    for (language, chapters) in &chapter_groups {
+        chapter_rows.push(
+            container(text(format!("{} ({})", language, chapters.len())).size(14).color(palette::ACCENT))
+                .padding([8, 4])
+                .width(Length::Fill)
+                .into(),
+        );
+
+        for c in chapters {
             let status_icon = if c.read {
                 icon::glyph(icon::CHECK, 18, palette::SUCCESS)
             } else {
                 icon::glyph(icon::DOWNLOAD_FOR_OFFLINE, 18, palette::TEXT_MUTED)
             };
-            row![
-                text(c.title.clone()).size(14).color(palette::TEXT).width(Length::Fill),
+            let title: Element<'_, AppMessage> = match chapter_subtitle(c) {
+                Some(subtitle) => column![
+                    text(chapter_label(c)).size(14).color(palette::TEXT),
+                    text(subtitle).size(12).color(palette::TEXT_MUTED),
+                ].spacing(2).width(Length::Fill).into(),
+                None => text(chapter_label(c)).size(14).color(palette::TEXT).width(Length::Fill).into(),
+            };
+            chapter_rows.push(row![
+                title,
                 button(status_icon)
                     .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
                     .style(crate::theme::link_button)
@@ -284,12 +298,12 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center)
-            .into()
-        })
-        .collect();
+            .into());
+        }
+    }
 
     let chapters_header = row![
-        text(format!("Capítulos ({})", chapters.len()))
+        text(format!("Capítulos ({})", state.details.chapters.len()))
             .size(18)
             .color(palette::TEXT),
         iced::widget::horizontal_space(),
@@ -315,4 +329,105 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     ]
     .spacing(16)
     .into()
+}
+
+fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
+    let mut groups: BTreeMap<String, Vec<Chapter>> = BTreeMap::new();
+    for chapter in chapters {
+        groups.entry(language_label(chapter).to_string()).or_default().push(chapter.clone());
+    }
+    for items in groups.values_mut() {
+        items.sort_by(|a, b| {
+            a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal)
+                .then_with(|| a.upload_date.cmp(&b.upload_date))
+                .then_with(|| a.title.cmp(&b.title))
+        });
+    }
+    groups
+}
+
+fn language_label(chapter: &Chapter) -> &'static str {
+    let explicit = chapter.language.as_deref().unwrap_or_default();
+    let code = if explicit.is_empty() { chapter.source.rsplit('_').next().unwrap_or_default() } else { explicit };
+    let normalized = code.to_ascii_lowercase().replace('_', "-");
+    match normalized.as_str() {
+        "es" | "es-la" | "esla" => "Español",
+        "en" => "Inglés",
+        "pt" | "pt-br" | "ptbr" | "br" => "Portugués",
+        "fr" => "Francés",
+        "de" => "Alemán",
+        "it" => "Italiano",
+        "ja" | "jp" => "Japonés",
+        "ko" | "kr" => "Coreano",
+        "zh" | "zh-cn" | "zh-tw" | "cn" => "Chino",
+        "ru" => "Ruso",
+        "id" => "Indonesio",
+        "vi" => "Vietnamita",
+        "th" => "Tailandés",
+        _ => "Idioma desconocido",
+    }
+}
+
+fn chapter_label(chapter: &Chapter) -> String {
+    if chapter.number > 0.0 && chapter.number.is_finite() {
+        if chapter.number.fract() == 0.0 {
+            format!("Capítulo {}", chapter.number as i64)
+        } else {
+            let number = format!("{:.2}", chapter.number).trim_end_matches('0').to_string();
+            format!("Capítulo {number}")
+        }
+    } else if chapter.title.trim().is_empty() {
+        "Capítulo sin número".to_string()
+    } else {
+        chapter.title.trim().to_string()
+    }
+}
+
+fn chapter_subtitle(chapter: &Chapter) -> Option<String> {
+    let title = chapter.title.trim();
+    if title.is_empty() || title.eq_ignore_ascii_case(&chapter_label(chapter)) {
+        return None;
+    }
+    let lower = title.to_lowercase();
+    let is_generic = ["capítulo", "capitulo", "chapter", "cap.", "ch."]
+        .iter()
+        .any(|prefix| lower.starts_with(prefix));
+    (!is_generic).then(|| title.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    fn chapter(number: f32, title: &str, language: Option<&str>) -> Chapter {
+        Chapter {
+            source: "MANGADEX".into(), url: format!("/{number}/{title}"), title: title.into(), number,
+            volume: 0, language: language.map(str::to_string), scanlator: None, upload_date: 0,
+            branch: None, blob: Default::default(), read: false,
+        }
+    }
+
+    #[test]
+    fn groups_by_language_and_sorts_by_number() {
+        let chapters = vec![
+            chapter(2.0, "Segundo", Some("es")),
+            chapter(1.0, "First", Some("en")),
+            chapter(1.0, "Primero", Some("es")),
+        ];
+        let groups = organize_chapters(&chapters);
+        assert_eq!(groups["Español"][0].number, 1.0);
+        assert_eq!(groups["Español"][1].number, 2.0);
+        assert_eq!(groups["Inglés"].len(), 1);
+    }
+
+    #[test]
+    fn normalizes_number_and_preserves_descriptive_title() {
+        let c = chapter(5.5, "Reunión lasciva", Some("es"));
+        assert_eq!(chapter_label(&c), "Capítulo 5.5");
+        assert_eq!(chapter_subtitle(&c).as_deref(), Some("Reunión lasciva"));
+
+        let generic = chapter(5.0, "Capítulo 5", Some("es"));
+        assert_eq!(chapter_label(&generic), "Capítulo 5");
+        assert!(chapter_subtitle(&generic).is_none());
+    }
 }

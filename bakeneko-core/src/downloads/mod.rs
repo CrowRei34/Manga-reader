@@ -163,6 +163,7 @@ impl DownloadManager {
             title: String::new(),
             number: 0.0,
             volume: 0,
+            language: None,
             scanlator: None,
             upload_date: 0,
             branch: None,

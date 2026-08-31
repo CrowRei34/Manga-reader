@@ -584,9 +584,22 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
                 let mut col = Column::new().spacing(4).max_width(900);
                 for idx in 0..state.reader.page_paths.len() {
-                    if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
-                        col = col.push(page_element(handle, ContentFit::Contain));
-                    } else {
+                    // Mantener solo cinco páginas dentro del árbol gráfico.
+                    // Dibujar todos los handles a la vez llena el atlas de
+                    // texturas de wgpu en capítulos largos y termina en
+                    // `Not enough memory left`. Las páginas lejanas conservan
+                    // su altura para que el scroll no salte.
+                    let inside_render_window = idx.abs_diff(state.reader.current_page) <= 2;
+                    if inside_render_window {
+                        if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
+                            col = col.push(page_element(handle, ContentFit::Contain));
+                            continue;
+                        }
+                    }
+
+                    {
+                        // Placeholder con la altura real escalada.
+                        // También cubre páginas aún no descargadas.
                         let (w, h) = state.reader.page_dims.get(idx).copied().unwrap_or((0, 0));
                         let scaled_h = if w > 0 {
                             h as f32 * display_w / w as f32

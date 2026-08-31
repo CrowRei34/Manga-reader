@@ -12,7 +12,7 @@ impl MangaSourceApi for MockDaemon {
         Ok(PingReply { version: "1.0.0".into(), java: "21".into() })
     }
     async fn list_sources(&self) -> Result<Vec<Source>, DaemonError> {
-        Ok(vec![Source { id: "MANGADEX".into(), name: "MangaDex".into() }])
+        Ok(vec![Source { id: "MANGADEX".into(), name: "MangaDex".into(), language: Some("en".into()) }])
     }
     async fn catalog_list(&self, _s: &str, _o: i32, _q: Option<&str>) -> Result<Vec<Manga>, DaemonError> { Ok(vec![]) }
     async fn manga_details(&self, _s: &str, m: &Manga) -> Result<Manga, DaemonError> { Ok(m.clone()) }

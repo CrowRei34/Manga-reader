@@ -53,6 +53,7 @@ pub struct Chapter {
     pub title: String,
     #[serde(default)] pub number: f32,
     #[serde(default)] pub volume: i32,
+    #[serde(default)] pub language: Option<String>,
     pub scanlator: Option<String>,
     #[serde(rename = "uploadDate", default)] pub upload_date: i64,
     pub branch: Option<String>,
@@ -70,7 +71,11 @@ pub struct Page {
 }
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
-pub struct Source { pub id: String, pub name: String }
+pub struct Source {
+    pub id: String,
+    pub name: String,
+    #[serde(default)] pub language: Option<String>,
+}
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct PingReply { pub version: String, pub java: String }
