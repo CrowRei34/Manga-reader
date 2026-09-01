@@ -2,7 +2,6 @@
 set -euo pipefail
 
 REPO="CrowRei34/Manga-reader"
-ASSET="Bakeneko-Portable-Linux-x86_64.tar.gz"
 BASE="${XDG_DATA_HOME:-$HOME/.local/share}/bakeneko"
 RELEASES="$BASE/releases"
 BIN_DIR="${XDG_BIN_HOME:-$HOME/.local/bin}"
@@ -13,12 +12,22 @@ trap 'rm -rf "$TMP_DIR"' EXIT
 command -v curl >/dev/null || { echo "ERROR: curl es necesario." >&2; exit 1; }
 command -v tar >/dev/null || { echo "ERROR: tar es necesario." >&2; exit 1; }
 
-URL="https://github.com/$REPO/releases/latest/download/$ASSET"
-CHECKSUM_URL="$URL.sha256"
+RELEASE_JSON="$(curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
+  "https://api.github.com/repos/$REPO/releases/latest")"
+TAG="$(printf '%s' "$RELEASE_JSON" | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -n1)"
+if [ -z "$TAG" ]; then
+  echo "ERROR: GitHub no tiene un release publicado todavía." >&2
+  exit 1
+fi
+VERSION="${TAG#v}"
+ASSET="Bakeneko-Portable-v${VERSION}-Linux-x86_64.tar.gz"
+URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
+CHECKSUM_URL="https://github.com/$REPO/releases/download/$TAG/SHA256SUMS"
 ARCHIVE="$TMP_DIR/$ASSET"
 echo "Descargando Bakeneko desde GitHub…"
 curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$ARCHIVE" "$URL"
-curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$TMP_DIR/$ASSET.sha256" "$CHECKSUM_URL"
+curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$TMP_DIR/SHA256SUMS" "$CHECKSUM_URL"
+grep "  $ASSET$" "$TMP_DIR/SHA256SUMS" > "$TMP_DIR/$ASSET.sha256"
 (cd "$TMP_DIR" && sha256sum -c "$ASSET.sha256")
 
 tar -xzf "$ARCHIVE" -C "$TMP_DIR"
