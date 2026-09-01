@@ -4,6 +4,8 @@ use std::sync::mpsc::{self, RecvTimeoutError, Sender};
 use std::sync::Arc;
 use std::time::{Duration, SystemTime, UNIX_EPOCH};
 
+const GITHUB_URL: &str = "https://github.com/CrowRei34/Manga-reader";
+
 #[derive(Debug, Clone)]
 pub struct ReadingActivity {
     pub title: String,
@@ -116,8 +118,16 @@ fn set_reading_activity(
     reading: &ReadingActivity,
 ) -> Result<(), discord_rich_presence::error::Error> {
     let private = reading.is_adult && !reading.show_adult;
-    let title = discord_text(if private { "Leyendo una obra" } else { &reading.title });
-    let chapter = discord_text(if private { "Contenido privado" } else { &reading.chapter });
+    let title = if private {
+        discord_text("Se está leyendo una obra")
+    } else {
+        discord_text(&format!("Se está leyendo {}", reading.title))
+    };
+    let chapter = discord_text(if private {
+        "Contenido privado"
+    } else {
+        &reading.chapter
+    });
     let mut assets = activity::Assets::new().large_text(&title);
     if !private {
         if let Some(cover) = reading.cover_url.as_deref() {
@@ -135,8 +145,27 @@ fn set_reading_activity(
             .details(&title)
             .state(&chapter)
             .assets(assets)
+            .buttons(vec![activity::Button::new(
+                "Ver Bakeneko en GitHub",
+                GITHUB_URL,
+            )])
             .timestamps(activity::Timestamps::new().start(started)),
     )
+}
+
+/// Discord solo puede recuperar imágenes públicas HTTPS y limita las claves de
+/// assets a 256 caracteres. Algunas fuentes entregan URLs locales, `data:` o
+/// enlaces firmados demasiado largos; en esos casos prueba la portada alterna.
+pub fn compatible_cover_url<'a>(urls: impl IntoIterator<Item = Option<&'a str>>) -> Option<String> {
+    urls.into_iter().flatten().find_map(|raw| {
+        let url = raw.trim();
+        let lower = url.to_ascii_lowercase();
+        let public_https = lower.starts_with("https://")
+            && !lower.contains("localhost")
+            && !lower.contains("127.0.0.1")
+            && !lower.contains("[::1]");
+        (public_https && url.len() <= 256).then(|| url.to_owned())
+    })
 }
 
 fn discord_text(value: &str) -> String {
@@ -158,5 +187,21 @@ mod tests {
         assert_eq!(discord_text(""), "Bakeneko");
         assert_eq!(discord_text("A").chars().count(), 2);
         assert_eq!(discord_text(&"x".repeat(200)).chars().count(), 128);
+    }
+
+    #[test]
+    fn cover_url_uses_a_discord_compatible_fallback() {
+        let too_long = format!("https://images.example/{}", "x".repeat(300));
+        assert_eq!(
+            compatible_cover_url([
+                Some(too_long.as_str()),
+                Some("https://cdn.example/cover.jpg")
+            ]),
+            Some("https://cdn.example/cover.jpg".into())
+        );
+        assert_eq!(
+            compatible_cover_url([Some("http://localhost:8080/cover")]),
+            None
+        );
     }
 }

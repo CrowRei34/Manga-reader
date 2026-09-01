@@ -159,7 +159,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 discord.set_reading(crate::discord_presence::ReadingActivity {
                     title: manga.title.clone(),
                     chapter: chapter_label_for_presence(&ch),
-                    cover_url: manga.large_cover_url.clone().or_else(|| manga.cover_url.clone()),
+                    cover_url: crate::discord_presence::compatible_cover_url([
+                        manga.large_cover_url.as_deref(),
+                        manga.cover_url.as_deref(),
+                    ]),
                     is_adult: manga.is_nsfw,
                     show_adult: state.settings.discord_show_adult,
                 });
