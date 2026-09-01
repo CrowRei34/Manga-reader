@@ -49,6 +49,9 @@ jobs:
       - name: Probar la aplicación
         run: cargo test --workspace --lib --locked
 
+      - name: Construir binario optimizado
+        run: cargo build --release --locked
+
       - name: Resolver versión
         id: version
         shell: bash
