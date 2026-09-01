@@ -33,7 +33,19 @@ else
   echo "WARN: no se encontró java; omitiendo JRE bundleado." >&2
 fi
 if [ -n "${JRE_SRC:-}" ] && [ -d "$JRE_SRC" ]; then
+  # En setup-java, `cacerts` puede ser un symlink absoluto a /etc. Copiarlo
+  # como enlace deja la AppImage sin autoridades TLS en el equipo del usuario.
+  CACERTS_SRC="$(readlink -f "$JRE_SRC/lib/security/cacerts" 2>/dev/null || true)"
   cp -r "$JRE_SRC/." "$APPIMAGE_DIR/usr/jre/"
+  if [ -n "$CACERTS_SRC" ] && [ -f "$CACERTS_SRC" ]; then
+    rm -f "$APPIMAGE_DIR/usr/jre/lib/security/cacerts"
+    cp "$CACERTS_SRC" "$APPIMAGE_DIR/usr/jre/lib/security/cacerts"
+  fi
+  if [ ! -s "$APPIMAGE_DIR/usr/jre/lib/security/cacerts" ]; then
+    echo "ERROR: el JRE bundleado no contiene certificados TLS válidos." >&2
+    exit 1
+  fi
+  "$APPIMAGE_DIR/usr/jre/bin/keytool" -list -cacerts -storepass changeit >/dev/null
 else
   echo "WARN: $JRE_SRC no es un directorio JRE válido; omitiendo JRE bundleado." >&2
 fi
