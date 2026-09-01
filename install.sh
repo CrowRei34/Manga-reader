@@ -9,6 +9,22 @@ DESKTOP_DIR="${XDG_DATA_HOME:-$HOME/.local/share}/applications"
 TMP_DIR="$(mktemp -d "${TMPDIR:-/tmp}/bakeneko-install.XXXXXX")"
 trap 'rm -rf "$TMP_DIR"' EXIT
 
+if [ "${1:-}" = "--uninstall" ] || [ "${1:-}" = "uninstall" ]; then
+  echo "Desinstalando Bakeneko (se conservan biblioteca y configuración)…"
+  if [ -L "$BIN_DIR/bakeneko" ]; then rm -f "$BIN_DIR/bakeneko"; fi
+  rm -f "$DESKTOP_DIR/bakeneko.desktop"
+  # BASE solo contiene versiones del programa; XDG_CONFIG_HOME y la base de
+  # datos de la biblioteca viven fuera y no se tocan.
+  if [ -d "$BASE" ]; then rm -rf "$BASE"; fi
+  echo "Bakeneko desinstalado. La biblioteca permanece en tus datos locales."
+  exit 0
+fi
+
+if [ "${1:-}" != "" ] && [ "${1:-}" != "--update" ] && [ "${1:-}" != "update" ]; then
+  echo "Uso: $0 [--update|--uninstall]" >&2
+  exit 2
+fi
+
 command -v curl >/dev/null || { echo "ERROR: curl es necesario." >&2; exit 1; }
 command -v tar >/dev/null || { echo "ERROR: tar es necesario." >&2; exit 1; }
 

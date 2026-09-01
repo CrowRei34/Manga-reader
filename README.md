@@ -47,7 +47,13 @@ curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install
 
 El instalador descarga el paquete portátil desde GitHub, valida su SHA-256,
 crea el acceso `~/.local/bin/bakeneko` y registra Bakeneko en el menú de
-aplicaciones. No requiere `sudo` ni Java instalado.
+aplicaciones. No requiere `sudo` ni Java instalado. Ejecutarlo de nuevo
+actualiza a la última versión; para retirar solo el programa (conservando la
+biblioteca):
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --uninstall
+```
 
 ## Actualizaciones del núcleo de parsers
 
