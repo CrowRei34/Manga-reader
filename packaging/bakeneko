@@ -3,4 +3,13 @@ set -eu
 SELF=$(readlink -f "$0")
 HERE=${SELF%/*}
 export JAVA_HOME="$HERE/app/jre"
+export BAKENEKO_HOME="$HERE/app"
+if [ ! -x "$BAKENEKO_HOME/jre/bin/java" ]; then
+  echo "ERROR: falta Java incluido en $BAKENEKO_HOME/jre/bin/java" >&2
+  exit 1
+fi
+if [ ! -f "$BAKENEKO_HOME/bakeneko-daemon.jar" ]; then
+  echo "ERROR: falta el núcleo Java en $BAKENEKO_HOME/bakeneko-daemon.jar" >&2
+  exit 1
+fi
 exec "$HERE/app/bakeneko" "$@"

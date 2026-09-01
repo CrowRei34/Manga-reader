@@ -39,6 +39,10 @@ impl DaemonClient {
     }
 
     pub fn default_jar_path() -> PathBuf {
+        if let Ok(home) = std::env::var("BAKENEKO_HOME") {
+            let jar = Path::new(&home).join("bakeneko-daemon.jar");
+            if jar.exists() { return jar; }
+        }
         let exec_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
         // Espejo de defaultJarPath(): exec dir + 'daemon/build/libs/bakeneko-daemon.jar' walk-up.
         if let Some(dir) = &exec_dir {
@@ -71,12 +75,14 @@ impl DaemonClient {
     pub async fn start(&self, jar_path: Option<&str>, java_path: Option<&str>) -> Result<(), DaemonError> {
         let jar = jar_path.map(PathBuf::from).unwrap_or_else(Self::default_jar_path);
         if !jar.exists() {
+            eprintln!("[daemon] JAR no encontrado: {} (BAKENEKO_HOME={:?})", jar.display(), std::env::var("BAKENEKO_HOME").ok());
             return Err(DaemonError::Spawn(format!("No se encuentra el JAR del daemon: {}", jar.display())));
         }
         let java = match java_path {
             Some(j) => j.to_string(),
             None => Self::resolve_java().await,
         };
+        eprintln!("[daemon] usando java={} jar={}", java, jar.display());
         let socket_path = Xdg::daemon_socket();
         // Nota: no borramos un socket previo; el daemon real (java) lo sobreescribe al
         // bindear y borrar aquí rompería un listener vivo (p. ej. el fake server del test).
