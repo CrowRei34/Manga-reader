@@ -1,6 +1,8 @@
 /target
 /*/target/
 /AppDir
+/build
+/dist
 /appimagetool-*.AppImage
 /*.AppImage
 
@@ -19,4 +21,3 @@
 # Java Daemon Gradle build outputs
 /daemon/build/
 /daemon/.gradle/
-

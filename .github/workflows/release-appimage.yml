@@ -68,8 +68,16 @@ jobs:
           APPIMAGE_EXTRACT_AND_RUN: "1"
         run: ./make_universal.sh "${{ steps.version.outputs.value }}"
 
+      - name: Construir paquete portátil CPack
+        env:
+          SKIP_BUILD: "1"
+          JRE_HOME: ${{ env.JAVA_HOME }}
+        run: ./package_cpack.sh "${{ steps.version.outputs.value }}"
+
       - name: Generar suma SHA-256
-        run: sha256sum "Bakeneko-Universal-v${{ steps.version.outputs.value }}.AppImage" > SHA256SUMS
+        run: |
+          sha256sum "Bakeneko-Universal-v${{ steps.version.outputs.value }}.AppImage" > SHA256SUMS
+          cat "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz.sha256" >> SHA256SUMS
 
       - name: Publicar release
         env:
@@ -78,10 +86,13 @@ jobs:
         run: |
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             gh release upload "v$VERSION" \
-              "Bakeneko-Universal-v$VERSION.AppImage" SHA256SUMS --clobber
+              "Bakeneko-Universal-v$VERSION.AppImage" \
+              "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
+              SHA256SUMS --clobber
           else
             gh release create "v$VERSION" \
               "Bakeneko-Universal-v$VERSION.AppImage" SHA256SUMS \
+              "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
               --title "Bakeneko v$VERSION" \
               --generate-notes
           fi
