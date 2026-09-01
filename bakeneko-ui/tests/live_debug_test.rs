@@ -1,5 +1,7 @@
 // Debug: qué recibe exactamente el cliente del daemon real (socket directo).
 use bakeneko::core::daemon::rpc::{RpcRequest, RpcResponse};
+use std::collections::HashMap;
+use std::time::Duration;
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
 #[tokio::test]
@@ -15,7 +17,7 @@ async fn live_daemon_catalog_count() {
     let req = RpcRequest {
         id: 1,
         method: "catalog.list".into(),
-        params: Some(serde_json::json!({"source": "LUNARANIME", "offset": 0})),
+        params: Some(serde_json::json!({"source": "MANGADEX", "offset": 0})),
     };
     write_half
         .write_all(format!("{}\n", req.encode()).as_bytes())
@@ -47,4 +49,13 @@ async fn live_daemon_catalog_count() {
         }
     }
     assert!(parsed.is_ok());
+
+    let cover = parsed.unwrap().into_iter().find_map(|manga| manga.cover_url)
+        .expect("el catálogo no incluyó ninguna portada");
+    let cache = bakeneko::core::net::ImageCache::new();
+    let path = tokio::time::timeout(Duration::from_secs(30), cache.get(&cover, &HashMap::new()))
+        .await
+        .expect("timeout descargando portada")
+        .expect("falló la descarga de portada");
+    eprintln!("COVER DOWNLOADED = {}", path.display());
 }

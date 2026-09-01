@@ -1,0 +1,85 @@
+name: Actualizar núcleo Futon
+
+on:
+  schedule:
+    # Revisión diaria a las 09:17 UTC. El minuto irregular evita horas pico.
+    - cron: "17 9 * * *"
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  pull-requests: write
+
+concurrency:
+  group: update-futon-core
+  cancel-in-progress: false
+
+jobs:
+  update:
+    name: Comprobar, probar y proponer actualización
+    runs-on: ubuntu-latest
+    timeout-minutes: 45
+
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Buscar una revisión nueva
+        id: futon
+        shell: bash
+        run: |
+          output="$(bash scripts/update-futon-core.sh)"
+          echo "$output"
+          echo "$output" >> "$GITHUB_OUTPUT"
+
+      - name: Probar y generar el daemon actualizado
+        if: steps.futon.outputs.changed == 'true'
+        working-directory: daemon
+        run: ./gradlew test shadowJar --no-daemon
+
+      - name: Probar la aplicación
+        if: steps.futon.outputs.changed == 'true'
+        run: cargo test --workspace --lib --locked
+
+      - name: Comprobar los cambios
+        if: steps.futon.outputs.changed == 'true'
+        run: git diff --check
+
+      - name: Abrir propuesta de actualización
+        if: steps.futon.outputs.changed == 'true'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          NEW_SHA: ${{ steps.futon.outputs.latest_sha }}
+        shell: bash
+        run: |
+          short_sha="${NEW_SHA:0:12}"
+          branch="automation/futon-$short_sha"
+
+          existing_pr="$(gh pr list --state open --head "$branch" --json number --jq '.[0].number // empty')"
+          if [[ -n "$existing_pr" ]]; then
+            echo "La propuesta #$existing_pr ya existe."
+            exit 0
+          fi
+
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git checkout -b "$branch"
+          git add daemon/build.gradle.kts daemon/build/libs/bakeneko-daemon.jar
+          git commit -m "chore: update Futon parsers to $short_sha"
+          git push --set-upstream origin "$branch"
+
+          gh pr create \
+            --base "${{ github.event.repository.default_branch }}" \
+            --head "$branch" \
+            --title "chore: actualizar núcleo Futon a $short_sha" \
+            --body $'Actualización automática del núcleo de parsers Futon.\n\nValidaciones ejecutadas:\n- pruebas del daemon Kotlin/Java\n- generación del JAR autocontenido\n- pruebas de la aplicación Rust\n- comprobación del diff\n\nRevisión completa: `'$NEW_SHA'`'
+

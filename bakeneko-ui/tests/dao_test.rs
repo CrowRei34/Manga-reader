@@ -37,10 +37,19 @@ fn manga_upsert_and_get_by_key() {
 #[test]
 fn library_flag_roundtrip() {
     let conn = setup();
-    let id = manga_dao::upsert(&conn, &sample_manga("/lib"), 0).unwrap();
+    let mut manga = sample_manga("/lib");
+    manga.authors = vec!["Autora".into()];
+    manga.rating = 4.5;
+    manga.is_nsfw = true;
+    manga.large_cover_url = Some("https://example.test/large.jpg".into());
+    let id = manga_dao::upsert(&conn, &manga, 0).unwrap();
     manga_dao::set_library_flag(&conn, id, true).unwrap();
     let lib = manga_dao::list_library(&conn).unwrap();
     assert_eq!(lib.len(), 1);
+    assert_eq!(lib[0].authors, vec!["Autora"]);
+    assert_eq!(lib[0].rating, 4.5);
+    assert!(lib[0].is_nsfw);
+    assert_eq!(lib[0].large_cover_url.as_deref(), Some("https://example.test/large.jpg"));
 }
 
 #[test]
@@ -76,6 +85,10 @@ fn categories_and_assignment() {
     let cats = category_dao::for_manga(&conn, id).unwrap();
     assert_eq!(cats.len(), 1);
     assert_eq!(cats[0].name, "Favoritos");
+    manga_dao::set_library_flag(&conn, id, true).unwrap();
+    let filtered = manga_dao::list_library_by_category(&conn, cid).unwrap();
+    assert_eq!(filtered.len(), 1);
+    assert_eq!(filtered[0].url, "/cat");
 }
 
 #[test]

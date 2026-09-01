@@ -4,7 +4,7 @@ import kotlinx.serialization.json.Json
 import org.junit.jupiter.api.Assertions.assertEquals
 import org.junit.jupiter.api.Assertions.assertTrue
 import org.junit.jupiter.api.Test
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
+import io.github.landwarderer.futon.parsers.model.MangaParserSource
 
 class ModelsTest {
 

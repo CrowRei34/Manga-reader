@@ -26,7 +26,6 @@ pub const BOOKMARK: char = '\u{e866}';
 pub const CLOSE: char = '\u{e5cd}';
 pub const PAUSE: char = '\u{e034}';
 pub const CHECK: char = '\u{e5ca}';
-pub const FILTER: char = '\u{e152}';
 pub const ERROR: char = '\u{e001}';          // error_outline (círculo con !)
 pub const DOWNLOAD_FOR_OFFLINE: char = '\u{e171}';
 pub const IMAGE: char = '\u{e3f4}';          // image (placeholder de portada)
@@ -35,4 +34,3 @@ pub const IMAGE: char = '\u{e3f4}';          // image (placeholder de portada)
 pub fn glyph(code: char, size: u16, color: Color) -> text::Text<'static> {
     text(code.to_string()).font(ICON_FONT).size(size).color(color)
 }
-

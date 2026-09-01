@@ -1,13 +1,13 @@
 package io.github.bakeneko.daemon
 
 import kotlinx.serialization.Serializable
-import org.koitharu.kotatsu.parsers.model.ContentRating
-import org.koitharu.kotatsu.parsers.model.Manga
-import org.koitharu.kotatsu.parsers.model.MangaChapter
-import org.koitharu.kotatsu.parsers.model.MangaPage
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.model.MangaState
-import org.koitharu.kotatsu.parsers.model.MangaTag
+import io.github.landwarderer.futon.parsers.model.ContentRating
+import io.github.landwarderer.futon.parsers.model.Manga
+import io.github.landwarderer.futon.parsers.model.MangaChapter
+import io.github.landwarderer.futon.parsers.model.MangaPage
+import io.github.landwarderer.futon.parsers.model.MangaParserSource
+import io.github.landwarderer.futon.parsers.model.MangaState
+import io.github.landwarderer.futon.parsers.model.MangaTag
 
 /**
  * DTOs serializables que viajan por el socket. Llevan los datos de
@@ -65,13 +65,17 @@ internal fun MangaParserSource.toDto(): SourceDto = SourceDto(
     language = locale,
 )
 
+@Suppress("DEPRECATION")
 internal fun Manga.toDto(): MangaDto = MangaDto(
     source = (source as? MangaParserSource)?.name ?: source.name,
     url = url,
     title = title ?: "",
     publicUrl = publicUrl,
     rating = rating,
-    isNsfw = contentRating == ContentRating.ADULT,
+    // Parsers nuevos usan contentRating; varios parsers heredados todavía
+    // solo rellenan isNsfw. Combinar ambos evita etiquetar una obra +18
+    // como apta por una diferencia de generación del parser.
+    isNsfw = contentRating == ContentRating.ADULT || isNsfw,
     coverUrl = coverUrl,
     largeCoverUrl = largeCoverUrl,
     description = description,

@@ -2,10 +2,15 @@ package io.github.bakeneko.daemon
 
 import kotlinx.coroutines.CoroutineScope
 import kotlinx.coroutines.Dispatchers
+import kotlinx.coroutines.Job
 import kotlinx.coroutines.SupervisorJob
 import kotlinx.coroutines.cancel
+import kotlinx.coroutines.coroutineScope
 import kotlinx.coroutines.launch
+import kotlinx.coroutines.joinAll
 import kotlinx.coroutines.runBlocking
+import kotlinx.coroutines.sync.Mutex
+import kotlinx.coroutines.sync.withLock
 import kotlinx.serialization.json.Json
 import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.JsonPrimitive
@@ -85,22 +90,35 @@ private suspend fun handleConnection(
     channel: SocketChannel,
     methods: Methods,
     json: Json,
-) {
+) = coroutineScope {
     channel.use { ch ->
         val input = java.io.InputStreamReader(java.nio.channels.Channels.newInputStream(ch), Charsets.UTF_8).buffered()
         val output = java.io.BufferedWriter(
             java.io.OutputStreamWriter(java.nio.channels.Channels.newOutputStream(ch), Charsets.UTF_8),
         )
+        // Las consultas de red son independientes y pueden tardar varios
+        // segundos. Se procesan en paralelo; sólo la escritura NDJSON se
+        // serializa para impedir que dos respuestas mezclen sus bytes.
+        val outputMutex = Mutex()
+        val requests = mutableListOf<Job>()
         var line: String? = input.readLine()
         while (line != null) {
             if (line.isNotBlank()) {
-                val response = handleRequest(line.trim(), methods, json)
-                output.write(response)
-                output.newLine()
-                output.flush()
+                val request = line.trim()
+                requests += launch(Dispatchers.IO) {
+                    val response = handleRequest(request, methods, json)
+                    outputMutex.withLock {
+                        output.write(response)
+                        output.newLine()
+                        output.flush()
+                    }
+                }
             }
             line = input.readLine()
         }
+        // Si el cliente cierra el canal, dejamos terminar las respuestas que
+        // ya fueron aceptadas antes de liberar el writer.
+        requests.joinAll()
     }
 }
 
@@ -120,7 +138,7 @@ internal suspend fun handleRequest(rawLine: String, methods: Methods, json: Json
             } catch (kc: kotlin.coroutines.cancellation.CancellationException) {
                 throw kc
             } catch (e: Throwable) {
-                e.printStackTrace()
+                System.err.println("$method: ${e::class.simpleName}: ${e.message ?: "error interno"}")
                 return errorResponse(json, id, RpcCodes.INTERNAL_ERROR, e.message ?: "error interno")
             }
             okResponse(json, id, result)
@@ -128,7 +146,7 @@ internal suspend fun handleRequest(rawLine: String, methods: Methods, json: Json
     } catch (e: kotlinx.serialization.SerializationException) {
         errorResponse(json, null, RpcCodes.PARSE_ERROR, "JSON inválido: ${e.message}")
     } catch (e: Throwable) {
-        e.printStackTrace()
+        System.err.println("request: ${e::class.simpleName}: ${e.message ?: "error interno"}")
         errorResponse(json, null, RpcCodes.INTERNAL_ERROR, e.message ?: "error interno")
     }
 

@@ -12,9 +12,9 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
-import org.koitharu.kotatsu.parsers.model.MangaListFilter
-import org.koitharu.kotatsu.parsers.model.MangaParserSource
-import org.koitharu.kotatsu.parsers.model.SortOrder
+import io.github.landwarderer.futon.parsers.model.MangaListFilter
+import io.github.landwarderer.futon.parsers.model.MangaParserSource
+import io.github.landwarderer.futon.parsers.model.SortOrder
 
 /**
  * Despachador de métodos JSON-RPC. Sin estado: cada call pide un

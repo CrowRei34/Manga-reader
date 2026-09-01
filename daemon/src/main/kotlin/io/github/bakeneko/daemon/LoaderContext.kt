@@ -5,14 +5,12 @@ import okhttp3.CookieJar
 import okhttp3.HttpUrl
 import okhttp3.OkHttpClient
 import okhttp3.Response
-import org.koitharu.kotatsu.parsers.MangaLoaderContext
-import org.koitharu.kotatsu.parsers.MangaParser
-import org.koitharu.kotatsu.parsers.bitmap.Bitmap
-import org.koitharu.kotatsu.parsers.config.MangaSourceConfig
-import org.koitharu.kotatsu.parsers.model.MangaSource
-import org.koitharu.kotatsu.parsers.network.UserAgents
-import org.koitharu.kotatsu.parsers.webview.InterceptedRequest
-import org.koitharu.kotatsu.parsers.webview.InterceptionConfig
+import io.github.landwarderer.futon.parsers.MangaLoaderContext
+import io.github.landwarderer.futon.parsers.MangaParser
+import io.github.landwarderer.futon.parsers.bitmap.Bitmap
+import io.github.landwarderer.futon.parsers.config.MangaSourceConfig
+import io.github.landwarderer.futon.parsers.model.MangaSource
+import io.github.landwarderer.futon.parsers.network.UserAgents
 import java.util.Base64
 import java.util.Locale
 import javax.script.ScriptEngineManager
@@ -41,15 +39,15 @@ class DaemonLoaderContext : MangaLoaderContext() {
         .cookieJar(cookieJar)
         .build()
 
-    override suspend fun evaluateJs(baseUrl: String, script: String, timeout: Long): String? =
+    override suspend fun evaluateJs(baseUrl: String, script: String): String? =
         try {
             scriptEngine?.eval(script)?.toString()
         } catch (e: Exception) {
-            e.printStackTrace()
+            System.err.println("evaluateJs: ${e::class.simpleName}: ${e.message}")
             null
         }
 
-    override suspend fun evaluateJs(script: String): String? = evaluateJs("", script, 10_000)
+    override suspend fun evaluateJs(script: String): String? = evaluateJs("", script)
 
     override fun getDefaultUserAgent(): String = UserAgents.FIREFOX_DESKTOP
 
@@ -58,14 +56,14 @@ class DaemonLoaderContext : MangaLoaderContext() {
         override val height = height
         override fun drawBitmap(
             sourceBitmap: Bitmap,
-            src: org.koitharu.kotatsu.parsers.bitmap.Rect,
-            dst: org.koitharu.kotatsu.parsers.bitmap.Rect,
+            src: io.github.landwarderer.futon.parsers.bitmap.Rect,
+            dst: io.github.landwarderer.futon.parsers.bitmap.Rect,
         ) {}
     }
 
     override fun getConfig(source: MangaSource): MangaSourceConfig = object : MangaSourceConfig {
         @Suppress("UNCHECKED_CAST")
-        override fun <T> get(key: org.koitharu.kotatsu.parsers.config.ConfigKey<T>): T = key.defaultValue
+        override fun <T> get(key: io.github.landwarderer.futon.parsers.config.ConfigKey<T>): T = key.defaultValue
     }
 
     override fun encodeBase64(data: ByteArray): String =
@@ -81,15 +79,4 @@ class DaemonLoaderContext : MangaLoaderContext() {
 
     override fun redrawImageResponse(response: Response, redraw: (image: Bitmap) -> Bitmap): Response = response
 
-    override suspend fun interceptWebViewRequests(
-        url: String, interceptorScript: String, timeout: Long,
-    ): List<InterceptedRequest> = emptyList()
-
-    override suspend fun interceptWebViewRequests(
-        url: String, config: InterceptionConfig,
-    ): List<InterceptedRequest> = emptyList()
-
-    override suspend fun captureWebViewUrls(
-        pageUrl: String, urlPattern: Regex, timeout: Long,
-    ): List<String> = emptyList()
 }

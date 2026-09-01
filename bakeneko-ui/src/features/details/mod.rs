@@ -32,6 +32,7 @@ pub struct State {
     pub loading: bool,
     /// Pantalla desde la que se abrió el detalle (para el botón Atrás).
     pub back_target: Option<Screen>,
+    pub in_library: bool,
 }
 
 #[derive(Debug, Clone)]
@@ -39,7 +40,7 @@ pub enum Message {
     Load(MangaRef),
     Fetched(Result<Manga, DaemonError>),
     ChapterSelected(Chapter),
-    AddToLibrary,
+    ToggleLibrary,
     ReadNow,
     DownloadChapter(Chapter),
     DownloadAll,
@@ -55,6 +56,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.loading = true;
             state.details.manga = None;
             state.details.chapters.clear();
+            state.details.in_library = state.library.iter().any(|manga| {
+                manga.source == mref.source && manga.url == mref.url
+            });
             // Guarda la pantalla origen para "Atrás".
             if state.screen != Screen::Details {
                 state.details.back_target = Some(state.screen.clone());
@@ -135,14 +139,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 None => Task::none(),
             }
         }
-        Message::AddToLibrary => {
+        Message::ToggleLibrary => {
             let m_opt = state.details.manga.clone();
             let dbh = state.db.clone();
             if let (Some(m), Some(db)) = (m_opt, dbh) {
+                let in_library = !state.details.in_library;
+                state.details.in_library = in_library;
                 return Task::perform(
                     db::db_blocking(db, move |conn| {
                         let id = manga_dao::upsert(conn, &m, 0)?;
-                        manga_dao::set_library_flag(conn, id, true)?;
+                        manga_dao::set_library_flag(conn, id, in_library)?;
                         Ok::<(), DbError>(())
                     }),
                     |r| match r {
@@ -248,12 +254,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         button(
             row![
                 icon::glyph(icon::BOOKMARK, 16, palette::ACCENT),
-                text("En Biblioteca").size(14).color(palette::ACCENT),
+                text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
+                    .size(14).color(palette::ACCENT),
             ]
             .spacing(8)
             .align_y(iced::Alignment::Center),
         )
-        .on_press(AppMessage::Details(Message::AddToLibrary))
+        .on_press(AppMessage::Details(Message::ToggleLibrary))
         .style(crate::theme::ghost_button)
         .padding([10, 18]),
     ]

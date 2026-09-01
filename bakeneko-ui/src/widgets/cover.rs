@@ -90,9 +90,10 @@ pub fn cover_card<'a>(
             .into(),
     };
 
-    let title = text(ellipsize(&m.title, 48))
+    let display_title = if m.is_nsfw { format!("+18 · {}", m.title) } else { m.title.clone() };
+    let title = text(ellipsize(&display_title, 48))
         .size(14)
-        .color(palette::TEXT)
+        .color(if m.is_nsfw { palette::ACCENT } else { palette::TEXT })
         .width(Length::Fixed(COVER_W))
         .height(Length::Fixed(38.0));
     let subtitle = subtitle.unwrap_or_else(|| m.authors.first().cloned().unwrap_or_default());

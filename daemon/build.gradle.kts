@@ -37,7 +37,9 @@ repositories {
 }
 
 dependencies {
-    implementation("com.github.AppFuton:futon-parsers:f287c414a6")
+    // Fijado al HEAD verificado del fork mantenido de Kotatsu parsers.
+    // Incluye correcciones recientes de MangaFire, DoujinDesu y dominios.
+    implementation("com.github.AppFuton:futon-parsers:b1b7d3d9f11f97aa3ef678d7edfcf4183b4935dc")
     implementation("com.squareup.okhttp3:okhttp:4.12.0")
     implementation("org.openjdk.nashorn:nashorn-core:15.4")
     implementation("org.jetbrains.kotlinx:kotlinx-coroutines-core:1.10.2")

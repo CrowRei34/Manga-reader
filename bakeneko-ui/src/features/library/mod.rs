@@ -2,28 +2,39 @@
 //! - Título "Biblioteca" + ícono de filtro
 //! - Fila de chips de categorías ("Todas" activa + categorías + "+ Nueva")
 //! - Grid scrollable de cover cards
-use iced::widget::{button, column, container, row, scrollable, text, Row};
+use iced::widget::{button, column, container, row, scrollable, text, text_input, Row};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use bakeneko_core::db;
 use bakeneko_core::db::dao::{category_dao, manga_dao};
 use bakeneko_core::error::DbError;
-use bakeneko_core::models::Category;
+use bakeneko_core::models::{Category, Manga};
 use crate::theme::palette;
-use crate::widgets::icon;
 
 #[derive(Debug, Default)]
 pub struct State {
     /// `None` = "Todas".
     pub category_filter: Option<i64>,
     pub categories: Vec<Category>,
+    pub query: String,
+    pub adult_filter: AdultFilter,
+}
+
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub enum AdultFilter {
+    #[default]
+    All,
+    Safe,
+    Adult,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     Load,
     CategoryFilter(Option<i64>),
+    QueryChanged(String),
+    AdultFilterChanged(AdultFilter),
     CategoriesLoaded(Result<Vec<Category>, DbError>),
 }
 
@@ -36,13 +47,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::batch([
                     Task::perform(
                         db::db_blocking(db.clone(), move |conn| {
-                            let mut all = manga_dao::list_library(conn)?;
-                            if let Some(cat) = category {
-                                all.retain(|m| {
-                                    m.blob.get("category").and_then(|v| v.as_i64()) == Some(cat)
-                                });
+                            match category {
+                                Some(cat) => manga_dao::list_library_by_category(conn, cat),
+                                None => manga_dao::list_library(conn),
                             }
-                            Ok(all)
                         }),
                         AppMessage::LibraryLoaded,
                     ),
@@ -59,6 +67,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.library_state.category_filter = c;
             update(state, Message::Load)
         }
+        Message::QueryChanged(query) => {
+            state.library_state.query = query;
+            Task::none()
+        }
+        Message::AdultFilterChanged(filter) => {
+            state.library_state.adult_filter = filter;
+            Task::none()
+        }
         Message::CategoriesLoaded(Ok(cats)) => {
             state.library_state.categories = cats;
             Task::none()
@@ -72,12 +88,15 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 
 /// Vista: título + chips + grid de portadas.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
+    let search = text_input("Buscar en tu biblioteca…", &state.library_state.query)
+        .on_input(|query| AppMessage::Library(Message::QueryChanged(query)))
+        .style(crate::theme::search_input)
+        .padding([8, 12])
+        .width(Length::Fixed(320.0));
     let title_row = row![
         text("Biblioteca").size(22).color(palette::TEXT),
         iced::widget::horizontal_space(),
-        button(icon::glyph(icon::FILTER, 18, palette::TEXT_MUTED))
-            .style(crate::theme::link_button)
-            .padding(6),
+        search,
     ]
     .align_y(iced::Alignment::Center);
 
@@ -99,13 +118,33 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .into(),
         );
     }
-    chips.push(
-        button(text("+ Nueva").size(13))
-            .style(crate::theme::ghost_button)
-            .padding([6, 14])
-            .into(),
-    );
+    for (label, filter) in [
+        ("Todo el contenido", AdultFilter::All),
+        ("Apto", AdultFilter::Safe),
+        ("+18", AdultFilter::Adult),
+    ] {
+        chips.push(
+            button(text(label).size(13))
+                .on_press(AppMessage::Library(Message::AdultFilterChanged(filter)))
+                .style(crate::theme::chip_button(state.library_state.adult_filter == filter))
+                .padding([6, 14])
+                .into(),
+        );
+    }
     let chips_row = Row::with_children(chips).spacing(8);
+
+    let query = state.library_state.query.trim().to_lowercase();
+    let filtered: Vec<Manga> = state.library.iter().filter(|manga| {
+        let matches_query = query.is_empty()
+            || manga.title.to_lowercase().contains(&query)
+            || manga.authors.iter().any(|author| author.to_lowercase().contains(&query));
+        let matches_rating = match state.library_state.adult_filter {
+            AdultFilter::All => true,
+            AdultFilter::Safe => !manga.is_nsfw,
+            AdultFilter::Adult => manga.is_nsfw,
+        };
+        matches_query && matches_rating
+    }).cloned().collect();
 
     let grid = if state.library.is_empty() {
         column![
@@ -115,9 +154,12 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .color(palette::TEXT_DIM),
         ]
         .spacing(8)
+    } else if filtered.is_empty() {
+        column![text("No hay obras que coincidan con estos filtros.")
+            .size(14).color(palette::TEXT_MUTED)]
     } else {
         column![crate::widgets::cover::cover_grid(
-            &state.library,
+            &filtered,
             &state.covers,
             crate::widgets::cover::per_row_for(state.window_size.0),
             crate::widgets::cover::details_msg,

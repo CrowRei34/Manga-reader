@@ -20,6 +20,16 @@ Un lector de manga desktop de alto rendimiento construido con **Rust** y la inte
 cargo run
 ```
 
+## Actualizaciones del núcleo de parsers
+
+GitHub Actions comprueba diariamente la rama principal de Futon Parsers. Cuando
+encuentra una revisión nueva, actualiza la dependencia, reconstruye el daemon y
+ejecuta las pruebas de Kotlin y Rust. Solo si todo termina correctamente abre un
+pull request automático; nunca modifica directamente la rama principal.
+
+La comprobación también se puede iniciar manualmente desde **Actions → Actualizar
+núcleo Futon → Run workflow**.
+
 ## Licencia
 
 [BSD 3-Clause](LICENSE)
