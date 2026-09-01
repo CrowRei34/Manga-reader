@@ -4,6 +4,10 @@ use std::fs;
 use std::io::Write;
 use std::path::PathBuf;
 
+/// Identificador público de la aplicación Bakeneko registrada en Discord.
+/// No es un secreto y se distribuye con todas las instalaciones, como hace Pear.
+pub const DISCORD_APPLICATION_ID: &str = "1004971679476363274";
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 #[serde(default)]
 pub struct Settings {
@@ -22,7 +26,7 @@ impl Default for Settings {
         Self {
             theme: "dark".into(), accent: "#7c5cbf".into(), default_source: None,
             download_concurrency: 2, library_view: "grid".into(),
-            discord_client_id: String::new(), discord_presence_enabled: false,
+            discord_client_id: DISCORD_APPLICATION_ID.into(), discord_presence_enabled: true,
             discord_show_adult: false,
         }
     }

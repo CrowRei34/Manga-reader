@@ -15,10 +15,9 @@ privacidad para ocultar título, portada o toda la actividad +18.
 
 ## Configuración
 
-1. Crear una aplicación en <https://discord.com/developers/applications>.
-2. Copiar su **Application ID**.
-3. En Bakeneko, abrir **Ajustes → Discord Rich Presence**, pegar el ID y
-   activar “Mostrar lo que estoy leyendo”.
+La aplicación distribuye el Application ID oficial de Bakeneko
+(`1004971679476363274`) y activa la presencia por defecto. En **Ajustes →
+Discord Rich Presence** se puede desactivar o sustituir el ID durante desarrollo.
 
 No se utiliza ningún secreto de Discord. El Application ID es un identificador
 público y queda guardado en la configuración local de Bakeneko.

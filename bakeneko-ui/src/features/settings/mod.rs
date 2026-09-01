@@ -149,7 +149,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         text("Densidad de Portadas").size(14).color(palette::TEXT),
         densidad,
         text("Discord Rich Presence").size(16).color(palette::ACCENT),
-        text("Crea una aplicación en Discord Developer Portal y pega aquí su Application ID.")
+        text("Bakeneko incluye su Application ID oficial; puedes sustituirlo para desarrollo.")
             .size(12).color(palette::TEXT_MUTED),
         discord_id,
         discord_enabled,

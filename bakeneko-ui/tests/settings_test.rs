@@ -1,5 +1,5 @@
 // tests/settings_test.rs
-use bakeneko::core::settings::{load, save, Settings};
+use bakeneko::core::settings::{load, save, Settings, DISCORD_APPLICATION_ID};
 use std::path::PathBuf;
 
 #[test]
@@ -29,6 +29,8 @@ fn missing_file_yields_default() {
         let s = load();
         assert_eq!(s.theme, "dark");
         assert_eq!(s.download_concurrency, 2);
+        assert_eq!(s.discord_client_id, DISCORD_APPLICATION_ID);
+        assert!(s.discord_presence_enabled);
     });
 }
 
