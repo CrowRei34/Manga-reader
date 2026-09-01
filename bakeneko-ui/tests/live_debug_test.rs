@@ -14,6 +14,22 @@ async fn live_daemon_catalog_count() {
         .unwrap_or_else(|_| "/run/user/1000/bakeneko/daemon.sock".into());
     let stream = tokio::net::UnixStream::connect(&sock).await.expect("connect");
     let (read_half, mut write_half) = stream.into_split();
+    let sources_req = RpcRequest {
+        id: 0,
+        method: "sources.list".into(),
+        params: None,
+    };
+    write_half
+        .write_all(format!("{}\n", sources_req.encode()).as_bytes())
+        .await
+        .unwrap();
+    let mut lines = BufReader::new(read_half).lines();
+    let sources_line = lines.next_line().await.unwrap().expect("sources response");
+    let sources = RpcResponse::decode(&sources_line).unwrap().unwrap().unwrap();
+    let source_count = sources.as_array().map_or(0, Vec::len);
+    eprintln!("DAEMON SENT {source_count} SOURCES");
+    assert!(source_count > 0, "el daemon empaquetado no enumeró fuentes");
+
     let req = RpcRequest {
         id: 1,
         method: "catalog.list".into(),
@@ -23,7 +39,6 @@ async fn live_daemon_catalog_count() {
         .write_all(format!("{}\n", req.encode()).as_bytes())
         .await
         .unwrap();
-    let mut lines = BufReader::new(read_half).lines();
     let line = lines.next_line().await.unwrap().expect("response line");
     eprintln!("RAW RESPONSE BYTES = {}", line.len());
     let resp = RpcResponse::decode(&line).unwrap();

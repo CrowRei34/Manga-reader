@@ -12,11 +12,11 @@ image = { version = "0.25", default-features = false, features = ["png", "jpeg",
 anyhow = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 async-trait = "0.1"
+discord-rich-presence = "1.1"
 
 
 [dev-dependencies]
 temp-env = "0.3"
 serde_json = "1"
 serde = { version = "1", features = ["derive"] }
-
 

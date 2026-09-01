@@ -2,7 +2,7 @@
 //! columnas (sub-nav "Apariencia"/"Lector" a la izquierda; panel derecho
 //! con Previsualización + dropdowns de Tema, Color de Acento y Densidad
 //! de Portadas). Cada cambio persiste vía `settings::save` (write-through).
-use iced::widget::{column, container, pick_list, row, text};
+use iced::widget::{column, container, pick_list, row, text, text_input, toggler};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -15,6 +15,9 @@ pub enum Message {
     ThemeChanged(String),
     AccentChanged(String),
     DensityChanged(String),
+    DiscordClientIdChanged(String),
+    DiscordPresenceChanged(bool),
+    DiscordAdultChanged(bool),
 }
 
 /// Reducer del feature Settings. Muta `state.settings` y persiste de
@@ -25,6 +28,23 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         Message::ThemeChanged(t) => state.settings.theme = t,
         Message::AccentChanged(a) => state.settings.accent = a,
         Message::DensityChanged(d) => state.settings.library_view = d,
+        Message::DiscordClientIdChanged(id) => {
+            state.settings.discord_client_id = id;
+            if state.settings.discord_presence_enabled {
+                state.discord_presence = crate::discord_presence::DiscordPresence::start(
+                    &state.settings.discord_client_id,
+                );
+            }
+        }
+        Message::DiscordPresenceChanged(enabled) => {
+            state.settings.discord_presence_enabled = enabled;
+            state.discord_presence = enabled
+                .then(|| crate::discord_presence::DiscordPresence::start(
+                    &state.settings.discord_client_id,
+                ))
+                .flatten();
+        }
+        Message::DiscordAdultChanged(show) => state.settings.discord_show_adult = show,
     }
 
     if let Err(e) = save(&state.settings) {
@@ -88,6 +108,38 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     .menu_style(crate::theme::dropdown_menu)
     .width(Length::Fill);
 
+    let discord_id = text_input(
+        "Application ID de Discord",
+        &state.settings.discord_client_id,
+    )
+    .on_input(|id| AppMessage::Settings(Message::DiscordClientIdChanged(id)))
+    .style(crate::theme::search_input)
+    .padding([8, 12]);
+
+    let discord_enabled = toggler(state.settings.discord_presence_enabled)
+        .label("Mostrar lo que estoy leyendo")
+        .on_toggle(|enabled| AppMessage::Settings(Message::DiscordPresenceChanged(enabled)))
+        .style(crate::theme::toggle);
+    let discord_adult = toggler(state.settings.discord_show_adult)
+        .label("Mostrar títulos y portadas +18")
+        .on_toggle(|show| AppMessage::Settings(Message::DiscordAdultChanged(show)))
+        .style(crate::theme::toggle);
+    let discord_status = if state.settings.discord_presence_enabled
+        && state.discord_presence.is_none()
+    {
+        "Introduce un Application ID numérico válido."
+    } else if let Some(discord) = &state.discord_presence {
+        match discord.status() {
+            crate::discord_presence::ConnectionStatus::Connected => "Conectado a Discord",
+            crate::discord_presence::ConnectionStatus::Connecting => "Esperando actividad para conectar…",
+            crate::discord_presence::ConnectionStatus::Disconnected => {
+                "Discord desconectado; se reintentará automáticamente."
+            }
+        }
+    } else {
+        "Desactivado"
+    };
+
     let panel = column![
         preview,
         text("Tema").size(14).color(palette::TEXT),
@@ -96,6 +148,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         acento,
         text("Densidad de Portadas").size(14).color(palette::TEXT),
         densidad,
+        text("Discord Rich Presence").size(16).color(palette::ACCENT),
+        text("Crea una aplicación en Discord Developer Portal y pega aquí su Application ID.")
+            .size(12).color(palette::TEXT_MUTED),
+        discord_id,
+        discord_enabled,
+        discord_adult,
+        text(discord_status).size(12).color(palette::TEXT_DIM),
     ]
     .spacing(10)
     .padding(iced::Padding::new(16.0))

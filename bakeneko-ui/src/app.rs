@@ -22,6 +22,7 @@ pub struct AppState {
     pub error: Option<String>,
     pub settings: Settings,
     pub sources: Vec<Source>,
+    pub source_load_attempts: u8,
     pub daemon_ready: bool,
     pub daemon: Option<Arc<DaemonClient>>,
     pub db: Option<Arc<Mutex<rusqlite::Connection>>>,
@@ -31,6 +32,7 @@ pub struct AppState {
     pub library_state: library::State,
     pub details: details::State,
     pub reader: reader::State,
+    pub discord_presence: Option<crate::discord_presence::DiscordPresence>,
     pub library: Vec<Manga>,
     /// Manager de descargas, creado de forma perezosa (una vez que daemon +
     /// DB están listos). `None` = aún no creado.
@@ -55,6 +57,7 @@ impl Default for AppState {
             error: None,
             settings: Settings::default(),
             sources: Vec::new(),
+            source_load_attempts: 0,
             daemon_ready: false,
             daemon: None,
             db: None,
@@ -64,6 +67,7 @@ impl Default for AppState {
             library_state: library::State::default(),
             details: details::State::default(),
             reader: reader::State::default(),
+            discord_presence: None,
             library: Vec::new(),
             downloads: None,
             downloads_state: downloads::State::default(),
@@ -154,6 +158,12 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             Task::none()
         }
         Message::SourcesListed(Ok(s)) => {
+            if s.is_empty() {
+                state.error = Some("El daemon respondió sin fuentes; reintentando…".into());
+                return retry_source_list(state);
+            }
+            eprintln!("[sources] {} fuentes cargadas", s.len());
+            state.source_load_attempts = 0;
             state.sources = s;
             // Auto-selecciona la fuente default y carga su catálogo (como el
             // app original, que arranca mostrando MangaDex). Si está
@@ -176,7 +186,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         }
         Message::SourcesListed(Err(e)) => {
             state.error = Some(e.to_string());
-            Task::none()
+            retry_source_list(state)
         }
         Message::SearchResult { generation, source, result } => {
             browse::apply_search_result(state, generation, source, result)
@@ -187,6 +197,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             Task::none()
         }
         Message::NavigateTo(s) => {
+            if s != Screen::Reader {
+                if let Some(discord) = &state.discord_presence {
+                    discord.clear();
+                }
+            }
             state.screen = s.clone();
             // Cargas perezosas al entrar a cada pantalla.
             match s {
@@ -245,6 +260,25 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             Task::none()
         }
     }
+}
+
+fn retry_source_list(state: &mut AppState) -> Task<Message> {
+    state.source_load_attempts = state.source_load_attempts.saturating_add(1);
+    if state.source_load_attempts > 3 {
+        state.error = Some(
+            "No se pudieron cargar las fuentes después de 3 intentos. Reinicia el daemon desde la aplicación."
+                .into(),
+        );
+        return Task::none();
+    }
+    let Some(daemon) = state.daemon.clone() else { return Task::none() };
+    Task::perform(
+        async move {
+            tokio::time::sleep(std::time::Duration::from_secs(1)).await;
+            daemon.list_sources().await
+        },
+        Message::SourcesListed,
+    )
 }
 
 /// Emite `Message::DaemonDied` si el socket del daemon se cierra. La

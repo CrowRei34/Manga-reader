@@ -3,7 +3,7 @@
 pub use bakeneko_core as core;
 
 pub mod app;
+pub mod discord_presence;
 pub mod features;
 pub mod theme;
 pub mod widgets;
-

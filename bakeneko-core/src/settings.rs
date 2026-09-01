@@ -12,11 +12,19 @@ pub struct Settings {
     pub default_source: Option<String>,
     pub download_concurrency: u32,
     pub library_view: String,
+    pub discord_client_id: String,
+    pub discord_presence_enabled: bool,
+    pub discord_show_adult: bool,
 }
 
 impl Default for Settings {
     fn default() -> Self {
-        Self { theme: "dark".into(), accent: "#7c5cbf".into(), default_source: None, download_concurrency: 2, library_view: "grid".into() }
+        Self {
+            theme: "dark".into(), accent: "#7c5cbf".into(), default_source: None,
+            download_concurrency: 2, library_view: "grid".into(),
+            discord_client_id: String::new(), discord_presence_enabled: false,
+            discord_show_adult: false,
+        }
     }
 }
 
@@ -44,4 +52,3 @@ pub fn save(s: &Settings) -> std::io::Result<()> {
     fs::rename(&tmp, &path)?;
     Ok(())
 }
-

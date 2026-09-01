@@ -155,6 +155,15 @@ fn chapter_idx(ch: &Chapter) -> i32 {
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::Load(ch) => {
+            if let (Some(discord), Some(manga)) = (&state.discord_presence, &state.details.manga) {
+                discord.set_reading(crate::discord_presence::ReadingActivity {
+                    title: manga.title.clone(),
+                    chapter: chapter_label_for_presence(&ch),
+                    cover_url: manga.large_cover_url.clone().or_else(|| manga.cover_url.clone()),
+                    is_adult: manga.is_nsfw,
+                    show_adult: state.settings.discord_show_adult,
+                });
+            }
             state.reader.chapter = Some(ch.clone());
             state.reader.page_paths.clear();
             state.reader.page_handles.clear();
@@ -394,6 +403,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::Back => {
+            if let Some(discord) = &state.discord_presence {
+                discord.clear();
+            }
             // Al salir, restaura la ventana si quedó en fullscreen.
             let restore = if state.reader.is_fullscreen {
                 state.reader.is_fullscreen = false;
@@ -406,6 +418,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::done(AppMessage::NavigateTo(crate::features::Screen::Details)),
             ])
         }
+    }
+}
+
+fn chapter_label_for_presence(chapter: &Chapter) -> String {
+    if chapter.number > 0.0 {
+        format!("Capítulo {}", chapter.number)
+    } else if chapter.title.trim().is_empty() {
+        "Leyendo".into()
+    } else {
+        chapter.title.trim().to_owned()
     }
 }
 

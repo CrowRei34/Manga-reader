@@ -1,4 +1,5 @@
 mod app;
+mod discord_presence;
 mod features;
 mod theme;
 mod widgets;
@@ -68,6 +69,10 @@ fn main() -> iced::Result {
 ///   `Message::SourcesListed` puebla `state.sources` →
 ///   home/browse reciben datos reales.
 fn init_state() -> (AppState, Task<Message>) {
+    let loaded_settings = settings::load();
+    let discord_presence = loaded_settings.discord_presence_enabled
+        .then(|| discord_presence::DiscordPresence::start(&loaded_settings.discord_client_id))
+        .flatten();
     // 1) Abrir + migrar la base SQLite en $XDG_DATA_HOME/bakeneko/bakeneko.sqlite.
     //    El `AppState.db` contiene `Arc<Mutex<Connection>>` para que los
     //    features (`home`/`library`) lancen consultas vía `db_blocking`.
@@ -126,7 +131,8 @@ fn init_state() -> (AppState, Task<Message>) {
         daemon: Some(daemon),
         daemon_ready: false,
         db,
-        settings: settings::load(),
+        settings: loaded_settings,
+        discord_presence,
         ..AppState::default()
     };
 

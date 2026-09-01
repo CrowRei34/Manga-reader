@@ -346,6 +346,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .map(|source| language_label(source.language.as_deref()))
         .collect();
     let source_label = match source_count {
+        0 if state.sources.is_empty() && state.daemon_ready => "Cargando fuentes…".to_owned(),
         0 => "Elige dónde buscar".to_owned(),
         count if selected_languages.len() == 1 => {
             format!("{} · {count}", selected_languages.iter().next().copied().unwrap_or("Idioma"))

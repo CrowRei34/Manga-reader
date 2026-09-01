@@ -5,7 +5,12 @@ use std::path::PathBuf;
 #[test]
 fn roundtrip_preserves_values() {
     temp_env::with_var("XDG_CONFIG_HOME", Some("/tmp/settest/config"), || {
-        let s = Settings { theme: "light".into(), accent: "#ff0000".into(), default_source: Some("MANGADEX".into()), download_concurrency: 4, library_view: "list".into() };
+        let s = Settings {
+            theme: "light".into(), accent: "#ff0000".into(),
+            default_source: Some("MANGADEX".into()), download_concurrency: 4,
+            library_view: "list".into(), discord_client_id: "123456".into(),
+            discord_presence_enabled: true, discord_show_adult: false,
+        };
         save(&s).unwrap();
         let loaded = load();
         assert_eq!(loaded.theme, "light");
@@ -13,6 +18,8 @@ fn roundtrip_preserves_values() {
         assert_eq!(loaded.default_source, Some("MANGADEX".to_string()));
         assert_eq!(loaded.download_concurrency, 4);
         assert_eq!(loaded.library_view, "list");
+        assert_eq!(loaded.discord_client_id, "123456");
+        assert!(loaded.discord_presence_enabled);
     });
 }
 
