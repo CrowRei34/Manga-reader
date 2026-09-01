@@ -69,8 +69,12 @@ jobs:
       - name: Construir paquete portátil CPack
         env:
           SKIP_BUILD: "1"
-          JRE_HOME: ${{ env.JAVA_HOME }}
         run: ./package_cpack.sh "${{ steps.version.outputs.value }}"
+
+      - name: Validar Java dentro del paquete
+        run: |
+          tar -tzf "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz" \
+            | grep -q '/app/jre/bin/java$'
 
       - name: Generar suma SHA-256
         run: |

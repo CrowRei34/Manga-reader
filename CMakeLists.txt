@@ -4,6 +4,10 @@ project(BakenekoPackage LANGUAGES NONE)
 set(BAKENEKO_VERSION "0.1.0" CACHE STRING "Versión de Bakeneko")
 set(BAKENEKO_JRE_HOME "" CACHE PATH "JRE 21 que se incluirá en el paquete")
 
+if(BAKENEKO_JRE_HOME STREQUAL "")
+  message(FATAL_ERROR "BAKENEKO_JRE_HOME está vacío; no se puede crear un paquete sin Java incluido")
+endif()
+
 foreach(required_file
     "${CMAKE_SOURCE_DIR}/target/release/bakeneko"
     "${CMAKE_SOURCE_DIR}/daemon/build/libs/bakeneko-daemon.jar"

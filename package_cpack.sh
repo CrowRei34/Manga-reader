@@ -17,6 +17,16 @@ else
   echo "ERROR: configura JRE_HOME con un JRE/JDK 21 válido." >&2
   exit 1
 fi
+if [ ! -x "$JRE_SRC/bin/java" ] || [ ! -x "$JRE_SRC/bin/keytool" ]; then
+  echo "ERROR: JRE inválido o incompleto: $JRE_SRC" >&2
+  exit 1
+fi
+JAVA_VERSION="$($JRE_SRC/bin/java -version 2>&1 | sed -n '1p')"
+case "$JAVA_VERSION" in
+  *'version "21.'*|*'version "22.'*|*'version "23.'*|*'version "24.'*|*'version "25.'*) ;;
+  *) echo "ERROR: se requiere Java 21 o superior; se encontró: $JAVA_VERSION" >&2; exit 1 ;;
+esac
+echo "Incluyendo JRE: $JRE_SRC ($JAVA_VERSION)"
 
 cmake -S . -B "$BUILD_DIR" \
   -DBAKENEKO_VERSION="$VERSION" \
