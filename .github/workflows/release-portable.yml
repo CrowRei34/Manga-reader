@@ -73,7 +73,13 @@ jobs:
         run: ./package_cpack.sh "${{ steps.version.outputs.value }}"
 
       - name: Generar suma SHA-256
-        run: cp "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz.sha256" SHA256SUMS
+        run: |
+          VERSION="${{ steps.version.outputs.value }}"
+          PACKAGE="Bakeneko-Portable-v${VERSION}-Linux-x86_64.tar.gz"
+          STABLE="Bakeneko-Portable-Linux-x86_64.tar.gz"
+          cp "dist/${PACKAGE}" "dist/${STABLE}"
+          sed "s/${PACKAGE}/${STABLE}/" "dist/${PACKAGE}.sha256" > "dist/${STABLE}.sha256"
+          cp "dist/${PACKAGE}.sha256" SHA256SUMS
 
       - name: Publicar release
         env:
@@ -83,10 +89,14 @@ jobs:
           if gh release view "v$VERSION" >/dev/null 2>&1; then
             gh release upload "v$VERSION" \
               "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
+              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz" \
+              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz.sha256" \
               SHA256SUMS --clobber
           else
             gh release create "v$VERSION" \
               "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
+              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz" \
+              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz.sha256" \
               SHA256SUMS \
               --title "Bakeneko v$VERSION" \
               --generate-notes

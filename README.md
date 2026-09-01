@@ -37,6 +37,18 @@ Para generarlo localmente con un JDK 21:
 JRE_HOME=/ruta/al/jdk-21 ./package_cpack.sh 0.2.6
 ```
 
+## Instalación rápida
+
+Para instalar o actualizar la última versión desde Linux:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash
+```
+
+El instalador descarga el paquete portátil desde GitHub, valida su SHA-256,
+crea el acceso `~/.local/bin/bakeneko` y registra Bakeneko en el menú de
+aplicaciones. No requiere `sudo` ni Java instalado.
+
 ## Actualizaciones del núcleo de parsers
 
 GitHub Actions comprueba diariamente la rama principal de Futon Parsers. Cuando
