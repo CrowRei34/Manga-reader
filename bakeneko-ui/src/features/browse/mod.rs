@@ -46,6 +46,9 @@ pub struct State {
     pub search_generation: u64,
     pub pending_sources: usize,
     pub search_errors: Vec<String>,
+    pub failed_sources: HashSet<String>,
+    /// Distingue la portada inicial de una exploración que terminó sin obras.
+    pub has_searched: bool,
     pub query: Option<String>,
     /// Consulta que produjo la lista actual. A diferencia de `query`, no
     /// cambia mientras el usuario todavía está escribiendo.
@@ -73,6 +76,7 @@ pub enum Message {
     SourceSelected(String),
     QueryChanged(String),
     Search,
+    RetryFailed,
     ToggleSourcePanel,
     ToggleCategoryPanel,
     ToggleCategory(String),
@@ -107,6 +111,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.browse.source_panel_open = false;
             state.browse.category_panel_open = false;
             start_search(state, false)
+        }
+        Message::RetryFailed => {
+            let failed: Vec<String> = state.browse.failed_sources.iter().cloned().collect();
+            if failed.is_empty() {
+                Task::none()
+            } else {
+                start_search_for(state, false, Some(failed))
+            }
         }
         Message::ToggleSourcePanel => {
             state.browse.source_panel_open = !state.browse.source_panel_open;
@@ -242,6 +254,8 @@ fn start_search_for(
         state.browse.exhausted_sources.clear();
         state.browse.visible_per_source.clear();
         state.browse.search_errors.clear();
+        state.browse.failed_sources.clear();
+        state.browse.has_searched = true;
         state.browse.loading = true;
         state.browse.loading_more = false;
     } else {
@@ -290,6 +304,7 @@ pub fn apply_search_result(
     state.browse.pending_sources = state.browse.pending_sources.saturating_sub(1);
     match result {
         Ok(items) => {
+            state.browse.failed_sources.remove(&source);
             if items.is_empty() {
                 state.browse.exhausted_sources.insert(source.clone());
             } else {
@@ -306,6 +321,7 @@ pub fn apply_search_result(
         }
         Err(error) => {
             state.browse.exhausted_sources.insert(source.clone());
+            state.browse.failed_sources.insert(source.clone());
             state.browse.search_errors.push(friendly_source_error(&source, &error.to_string()));
         }
     }
@@ -626,12 +642,24 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             "No hay obras que coincidan con la clasificación seleccionada."
         } else if source_count == 0 {
             "Primero elige una o varias fuentes para comenzar."
-        } else if state.browse.query.as_deref().unwrap_or("").trim().is_empty() {
+        } else if !state.browse.has_searched {
             "Pulsa Explorar para ver el catálogo de las fuentes elegidas."
+        } else if !state.browse.search_errors.is_empty() {
+            "Las fuentes disponibles no devolvieron obras. Reintenta las que fallaron o elige otras."
         } else {
-            "No encontramos resultados. Prueba otro título o selecciona más fuentes."
+            "No encontramos obras. Prueba otro título, categoría o grupo de fuentes."
         };
-        container(text(message).size(15).color(palette::TEXT_MUTED))
+        let mut empty = column![text(message).size(15).color(palette::TEXT_MUTED)]
+            .align_x(iced::Alignment::Center)
+            .spacing(14);
+        if !state.browse.failed_sources.is_empty() {
+            empty = empty.push(
+                button(text(format!("Reintentar {} fuentes", state.browse.failed_sources.len())))
+                    .on_press(AppMessage::Browse(Message::RetryFailed))
+                    .style(crate::theme::primary_button),
+            );
+        }
+        container(empty)
             .width(Length::Fill)
             .center_x(Length::Fill)
             .padding(40)
@@ -642,11 +670,19 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     let mut header_content = column![header].spacing(8);
     if !state.browse.search_errors.is_empty() {
-        header_content = header_content.push(
-            text(format!(
+        let status = if state.browse.list.is_empty() && !state.browse.loading {
+            format!(
+                "{} fuente(s) fallaron y las demás no devolvieron obras.",
+                state.browse.search_errors.len(),
+            )
+        } else {
+            format!(
                 "{} fuente(s) no respondieron; se omitieron y la búsqueda continuó.",
                 state.browse.search_errors.len(),
-            ))
+            )
+        };
+        header_content = header_content.push(
+            text(status)
                 .size(12).color(palette::ACCENT),
         );
     } else if state.browse.loading {
@@ -790,6 +826,7 @@ mod tests {
         let _ = apply_search_result(&mut state, 3, "BROKEN".into(),
             Err(DaemonError::Spawn("falló".into())));
         assert_eq!(state.browse.search_errors.len(), 1);
+        assert!(state.browse.failed_sources.contains("BROKEN"));
         assert_eq!(state.browse.pending_sources, 0);
     }
 
