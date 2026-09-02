@@ -184,9 +184,17 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             let src = ch.source.clone();
             let url = ch.url.clone();
             let cidx = chapter_idx(&ch);
+            let manga = state.details.manga.clone();
             std::thread::spawn(move || {
                 if let Some(db) = dbh {
                     let conn = db.lock().unwrap();
+                    // El usuario puede abrir un capítulo antes de que termine
+                    // el guardado asíncrono de Details. Asegura el manga aquí
+                    // para que la entrada de historial no se pierda por una
+                    // carrera entre ambos hilos.
+                    if let Some(manga) = manga.as_ref() {
+                        let _ = manga_dao::upsert(&conn, manga, 0);
+                    }
                     if let Ok(mid) = manga_dao::get_id_by_key(&conn, &src, &url) {
                         let _ = history_dao::upsert(&conn, mid, cidx, 0, now_millis());
                     }
