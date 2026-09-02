@@ -33,6 +33,8 @@ pub struct State {
     /// Pantalla desde la que se abrió el detalle (para el botón Atrás).
     pub back_target: Option<Screen>,
     pub in_library: bool,
+    /// Filtro de idioma de capítulos; `None` muestra todos.
+    pub language_filter: Option<String>,
 }
 
 #[derive(Debug, Clone)]
@@ -44,6 +46,7 @@ pub enum Message {
     ReadNow,
     DownloadChapter(Chapter),
     DownloadAll,
+    SetLanguage(Option<String>),
     Back,
 }
 
@@ -56,6 +59,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.loading = true;
             state.details.manga = None;
             state.details.chapters.clear();
+            state.details.language_filter = None;
             state.details.in_library = state.library.iter().any(|manga| {
                 manga.source == mref.source && manga.url == mref.url
             });
@@ -174,6 +178,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
             Task::none()
         }
+        Message::SetLanguage(language) => {
+            state.details.language_filter = language;
+            Task::none()
+        }
         Message::Back => {
             let target = state.details.back_target.clone().unwrap_or(Screen::Home);
             Task::done(AppMessage::NavigateTo(target))
@@ -268,8 +276,17 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     let header_row = row![cover, column![title_block, buttons_row].spacing(12)].spacing(20);
 
-    // Agrupa por idioma y ordena numéricamente dentro de cada sección.
-    let chapter_groups = organize_chapters(&state.details.chapters);
+    // Filtro rápido por idioma; después agrupa y ordena numéricamente.
+    let mut language_options: Vec<String> = state.details.chapters.iter()
+        .map(|c| language_label(c).to_string())
+        .collect();
+    language_options.sort();
+    language_options.dedup();
+    let filtered_chapters: Vec<Chapter> = state.details.chapters.iter()
+        .filter(|c| state.details.language_filter.as_deref().map(|f| language_label(c) == f).unwrap_or(true))
+        .cloned()
+        .collect();
+    let chapter_groups = organize_chapters(&filtered_chapters);
     let mut chapter_rows: Vec<Element<'_, AppMessage>> = Vec::new();
     for (language, chapters) in &chapter_groups {
         chapter_rows.push(
@@ -310,7 +327,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }
 
     let chapters_header = row![
-        text(format!("Capítulos ({})", state.details.chapters.len()))
+        text(format!("Capítulos ({}/{})", filtered_chapters.len(), state.details.chapters.len()))
             .size(18)
             .color(palette::TEXT),
         iced::widget::horizontal_space(),
@@ -328,9 +345,25 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     ]
     .align_y(iced::Alignment::Center);
 
+    let mut language_buttons = row![button(text("Todos").size(12))
+        .on_press(AppMessage::Details(Message::SetLanguage(None)))
+        .style(if state.details.language_filter.is_none() { crate::theme::primary_button } else { crate::theme::link_button })
+        .padding([5, 9])]
+        .spacing(6);
+    for language in language_options {
+        let active = state.details.language_filter.as_deref() == Some(language.as_str());
+        language_buttons = language_buttons.push(
+            button(text(language.clone()).size(12))
+                .on_press(AppMessage::Details(Message::SetLanguage(Some(language))))
+                .style(if active { crate::theme::primary_button } else { crate::theme::link_button })
+                .padding([5, 9]),
+        );
+    }
+
     column![
         back,
         header_row,
+        scrollable(language_buttons).direction(scrollable::Direction::Horizontal(Default::default())),
         chapters_header,
         scrollable(Column::with_children(chapter_rows).spacing(2)),
     ]
