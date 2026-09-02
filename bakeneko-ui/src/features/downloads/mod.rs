@@ -9,7 +9,7 @@
 //! state, total, done)`), así que al cargar se enriquece con los títulos de
 //! capítulo desde `chapter_dao::list_for_manga` (mismo `&mut Connection` del
 //! closure `db_blocking`, sin queries adicionales).
-use iced::widget::{button, column, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Task};
 use std::collections::HashMap;
 
@@ -201,7 +201,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             }
             _ => state_label(e.state).to_string(),
         };
-        row![
+        container(row![
             icon::glyph(ic, 18, color),
             column![
                 text(title).size(14).color(palette::TEXT),
@@ -214,7 +214,10 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding(6),
         ]
         .spacing(12)
-        .align_y(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center))
+        .style(crate::theme::card_container)
+        .padding([7, 10])
+        .width(Length::Fill)
         .into()
     }))
     .spacing(4);

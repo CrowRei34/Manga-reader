@@ -325,20 +325,25 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 ].spacing(2).width(Length::Fill).into(),
                 None => text(chapter_label(c)).size(14).color(palette::TEXT).width(Length::Fill).into(),
             };
-            chapter_rows.push(row![
-                title,
-                button(status_icon)
-                    .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
-                    .style(crate::theme::link_button)
-                    .padding(4),
-                button(text("Ver").size(13).color(palette::TEXT_MUTED))
-                    .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
-                    .style(crate::theme::link_button)
-                    .padding(4),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into());
+            chapter_rows.push(
+                container(row![
+                    title,
+                    button(status_icon)
+                        .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
+                        .style(crate::theme::link_button)
+                        .padding(4),
+                    button(text("Ver").size(13).color(palette::TEXT_MUTED))
+                        .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+                        .style(crate::theme::link_button)
+                        .padding(4),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center))
+                .style(crate::theme::card_container)
+                .padding([5, 8])
+                .width(Length::Fill)
+                .into(),
+            );
         }
     }
 

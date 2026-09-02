@@ -57,7 +57,8 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             row![
                 column![
                     text(s.name.clone()).size(15).color(palette::TEXT),
-                    text("Idioma: N/A").size(12).color(palette::TEXT_MUTED),
+                    text(format!("Idioma: {}", crate::language::label(s.language.as_deref())))
+                        .size(12).color(palette::TEXT_MUTED),
                 ]
                 .spacing(2)
                 .width(Length::Fill),
