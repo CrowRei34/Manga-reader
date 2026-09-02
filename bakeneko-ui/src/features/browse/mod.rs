@@ -458,7 +458,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .style(crate::theme::chip_button(state.browse.source_language.is_none()))
                 .padding([6, 10]),
         );
-        for (key, label, count) in languages.into_iter().take(6) {
+        for (key, label, count) in languages {
             let selected = state.browse.source_language.as_deref() == Some(key.as_str());
             language_chips = language_chips.push(
                 button(text(format!("{label} ({count})")).size(12))
@@ -514,7 +514,8 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             panel_header,
             row![
                 text("Idioma").size(12).color(palette::TEXT_MUTED),
-                language_chips,
+                scrollable(language_chips)
+                    .direction(scrollable::Direction::Horizontal(Default::default())),
             ].spacing(10).align_y(iced::Alignment::Center),
             filter,
             text(format!(
@@ -739,39 +740,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 }
 
 fn language_label(locale: Option<&str>) -> &'static str {
-    let locale = locale.unwrap_or("").to_ascii_lowercase();
-    if locale.starts_with("es") { "Español" }
-    else if locale.starts_with("en") { "Inglés" }
-    else if locale.starts_with("pt") { "Portugués" }
-    else if locale.starts_with("fr") { "Francés" }
-    else if locale.starts_with("de") { "Alemán" }
-    else if locale.starts_with("it") { "Italiano" }
-    else if locale.starts_with("ru") { "Ruso" }
-    else if locale.starts_with("ja") { "Japonés" }
-    else if locale.starts_with("ko") { "Coreano" }
-    else if locale.starts_with("zh") { "Chino" }
-    else if locale.starts_with("vi") { "Vietnamita" }
-    else if locale.starts_with("id") { "Indonesio" }
-    else if locale.is_empty() { "Idioma mixto" }
-    else { "Otro idioma" }
+    crate::language::label(locale)
 }
 
 fn language_key(locale: Option<&str>) -> &'static str {
-    let locale = locale.unwrap_or("").to_ascii_lowercase();
-    if locale.starts_with("es") { "es" }
-    else if locale.starts_with("en") { "en" }
-    else if locale.starts_with("pt") { "pt" }
-    else if locale.starts_with("fr") { "fr" }
-    else if locale.starts_with("de") { "de" }
-    else if locale.starts_with("it") { "it" }
-    else if locale.starts_with("ru") { "ru" }
-    else if locale.starts_with("ja") { "ja" }
-    else if locale.starts_with("ko") { "ko" }
-    else if locale.starts_with("zh") { "zh" }
-    else if locale.starts_with("vi") { "vi" }
-    else if locale.starts_with("id") { "id" }
-    else if locale.is_empty() { "mixed" }
-    else { "other" }
+    crate::language::key(locale)
 }
 
 fn source_matches_filters(source: &Source, query: &str, language: Option<&str>) -> bool {

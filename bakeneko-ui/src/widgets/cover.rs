@@ -203,11 +203,7 @@ pub fn search_result_grid<'a>(
 }
 
 fn language_label(locale: &str) -> &'static str {
-    let locale = locale.to_ascii_lowercase();
-    if locale.starts_with("es") { "Español" } else if locale.starts_with("en") { "Inglés" }
-    else if locale.starts_with("pt") { "Portugués" } else if locale.starts_with("fr") { "Francés" }
-    else if locale.starts_with("ja") { "Japonés" } else if locale.starts_with("zh") { "Chino" }
-    else { "Otro idioma" }
+    crate::language::label(Some(locale))
 }
 
 /// Grid responsivo determinista: el caller pasa `per_row` calculado del

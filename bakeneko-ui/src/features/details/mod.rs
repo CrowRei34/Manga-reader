@@ -123,7 +123,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             // (para navegar ‹ › entre capítulos).
             let chapters: Vec<Chapter> = state.details.chapters.iter()
                 .filter(|chapter| state.details.language_filter.as_deref()
-                    .map(|filter| language_label(chapter) == filter)
+                    .map(|filter| chapter_language_key(chapter) == filter)
                     .unwrap_or(true))
                 .cloned()
                 .collect();
@@ -143,7 +143,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 .chapters
                 .iter()
                 .filter(|chapter| state.details.language_filter.as_deref()
-                    .map(|filter| language_label(chapter) == filter)
+                    .map(|filter| chapter_language_key(chapter) == filter)
                     .unwrap_or(true))
                 .min_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal))
                 .cloned();
@@ -286,13 +286,18 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let header_row = row![cover, column![title_block, buttons_row].spacing(12)].spacing(20);
 
     // Filtro rápido por idioma; después agrupa y ordena numéricamente.
-    let mut language_options: Vec<String> = state.details.chapters.iter()
-        .map(|c| language_label(c).to_string())
+    let mut language_options: Vec<(String, &'static str)> = state.details.chapters.iter()
+        .map(|chapter| {
+            let key = chapter_language_key(chapter).to_owned();
+            (key.clone(), crate::language::label_for_key(&key))
+        })
         .collect();
-    language_options.sort();
-    language_options.dedup();
+    language_options.sort_by(|a, b| a.1.cmp(b.1));
+    language_options.dedup_by(|a, b| a.0 == b.0);
     let filtered_chapters: Vec<Chapter> = state.details.chapters.iter()
-        .filter(|c| state.details.language_filter.as_deref().map(|f| language_label(c) == f).unwrap_or(true))
+        .filter(|chapter| state.details.language_filter.as_deref()
+            .map(|filter| chapter_language_key(chapter) == filter)
+            .unwrap_or(true))
         .cloned()
         .collect();
     let chapter_groups = organize_chapters(&filtered_chapters);
@@ -359,10 +364,10 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .style(if state.details.language_filter.is_none() { crate::theme::primary_button } else { crate::theme::link_button })
         .padding([5, 9])]
         .spacing(6);
-    for language in language_options {
+    for (language, label) in language_options {
         let active = state.details.language_filter.as_deref() == Some(language.as_str());
         language_buttons = language_buttons.push(
-            button(text(language.clone()).size(12))
+            button(text(label).size(12))
                 .on_press(AppMessage::Details(Message::SetLanguage(Some(language))))
                 .style(if active { crate::theme::primary_button } else { crate::theme::link_button })
                 .padding([5, 9]),
@@ -396,44 +401,15 @@ fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
 }
 
 fn language_label(chapter: &Chapter) -> &'static str {
-    let explicit = chapter.language.as_deref().unwrap_or_default();
-    let code = if explicit.is_empty() { chapter.source.rsplit('_').next().unwrap_or_default() } else { explicit };
-    let normalized = code.to_ascii_lowercase().replace('_', "-");
-    // Futon expone locales BCP-47 (por ejemplo `es-419` o `pt-BR`).
-    // Para agrupar capítulos usamos el idioma base y conservamos la región
-    // únicamente como parte de la etiqueta de origen cuando haga falta.
-    let language = normalized.split('-').next().unwrap_or(normalized.as_str());
-    match language {
-        "es" => "Español",
-        "en" => "Inglés",
-        "pt" | "br" => "Portugués",
-        "fr" => "Francés",
-        "de" => "Alemán",
-        "it" => "Italiano",
-        "ja" | "jp" => "Japonés",
-        "ko" | "kr" => "Coreano",
-        "zh" | "cn" => "Chino",
-        "ru" => "Ruso",
-        "id" => "Indonesio",
-        "vi" => "Vietnamita",
-        "th" => "Tailandés",
-        "sl" => "Esloveno",
-        "tr" => "Turco",
-        "pl" => "Polaco",
-        "nl" => "Neerlandés",
-        "ar" => "Árabe",
-        "hi" => "Hindi",
-        "ms" => "Malayo",
-        "ca" => "Catalán",
-        "ro" => "Rumano",
-        "uk" => "Ucraniano",
-        "hu" => "Húngaro",
-        "sv" => "Sueco",
-        "no" => "Noruego",
-        "da" => "Danés",
-        "fi" => "Finés",
-        _ => "Idioma desconocido",
+    crate::language::label_for_key(chapter_language_key(chapter))
+}
+
+fn chapter_language_key(chapter: &Chapter) -> &'static str {
+    if let Some(locale) = chapter.language.as_deref().filter(|value| !value.trim().is_empty()) {
+        return crate::language::key(Some(locale));
     }
+    // Compatibilidad con parsers antiguos que incluían el locale en el ID.
+    crate::language::key(chapter.source.rsplit('_').next())
 }
 
 fn chapter_label(chapter: &Chapter) -> String {
