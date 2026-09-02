@@ -65,13 +65,41 @@ impl ColorFilter {
             ColorFilter::Bluelight => "Anti luz azul",
         }
     }
+
+    pub fn from_setting(value: &str) -> Self {
+        match value {
+            "inverted" => Self::Inverted,
+            "grayscale" => Self::Grayscale,
+            "sepia" => Self::Sepia,
+            "bluelight" => Self::Bluelight,
+            _ => Self::None,
+        }
+    }
+
+    pub fn setting(self) -> &'static str {
+        match self {
+            Self::None => "none",
+            Self::Inverted => "inverted",
+            Self::Grayscale => "grayscale",
+            Self::Sepia => "sepia",
+            Self::Bluelight => "bluelight",
+        }
+    }
+}
+
+impl ReadMode {
+    pub fn from_setting(value: &str) -> Self {
+        if value == "paginated" { Self::Paginated } else { Self::Webtoon }
+    }
+
+    pub fn setting(self) -> &'static str {
+        match self { Self::Webtoon => "webtoon", Self::Paginated => "paginated" }
+    }
 }
 
 
 #[derive(Debug, Default)]
 pub struct State {
-    /// URL del manga padre (para persistir historial en SQLite).
-    pub manga_url: Option<String>,
     /// Capítulo abierto.
     pub chapter: Option<Chapter>,
     /// Lista de capítulos del manga (para navegar ‹ › entre capítulos).
@@ -80,11 +108,11 @@ pub struct State {
     pub current_chapter: usize,
     /// Páginas (paths en disco de las imágenes ya descargadas/resueltas).
     pub page_paths: Vec<PathBuf>,
-    /// Conjunto de índices de página que están siendo decodificadas.
-    pub page_loading: std::collections::HashSet<usize>,
     /// Handles de imágenes precargados en memoria (evita I/O síncrono de disco durante render).
     pub page_handles: Vec<Option<iced::widget::image::Handle>>,
-    /// Dimensiones (w, h) por página, paralelo a `page_paths`. (0,0) = aún desconocidas.
+    /// Dimensiones (w, h) por página, paralelo a `page_paths`. (0,0) = aún
+
+    /// desconocidas. Se usan para el render ventaneado del webtoon.
     pub page_dims: Vec<(u32, u32)>,
     /// Offset relativo (0..1) del scroll webtoon, para el ventaneo.
     pub scroll_y: f32,
@@ -106,6 +134,9 @@ pub struct State {
     pub error: Option<String>,
     /// Ventana en pantalla completa (botón "Pantalla Completa").
     pub is_fullscreen: bool,
+    /// Generación del filtro activo; invalida trabajos anteriores.
+    pub filter_generation: u64,
+    pub filter_pending: usize,
 }
 
 #[derive(Debug, Clone)]
@@ -116,11 +147,17 @@ pub enum Message {
     PagesFetched(Result<Vec<bakeneko_core::models::Page>, bakeneko_core::error::DaemonError>),
     /// Respuesta de `source_headers`.
     HeadersFetched(Result<HashMap<String, String>, bakeneko_core::error::DaemonError>),
-    /// Una página completó su decodificación a textura en background.
-    PageDecoded { index: usize, handle: Option<iced::widget::image::Handle> },
     /// Una página se descargó (path en disco + dimensiones, o `None` si falló).
     PageDownloaded { index: usize, entry: Option<(PathBuf, (u32, u32))> },
+    /// Resultado de aplicar un filtro sin bloquear el hilo de UI.
+    FilteredPage {
+        generation: u64,
+        index: usize,
+        entry: Option<(u32, u32, Vec<u8>)>,
+    },
+
     /// Scroll del webtoon (offset relativo 0..1) para el render ventaneado.
+
     Scrolled(f32),
     /// Página anterior (modo Paginated).
     PrevPage,
@@ -169,32 +206,49 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                     show_adult: state.settings.discord_show_adult,
                 });
             }
+            state.reader.read_mode = ReadMode::from_setting(&state.settings.reader_mode);
+            state.reader.color_filter = ColorFilter::from_setting(&state.settings.reader_filter);
             state.reader.chapter = Some(ch.clone());
             state.reader.page_paths.clear();
-            state.reader.page_loading.clear();
             state.reader.page_handles.clear();
             state.reader.page_dims.clear();
             state.reader.scroll_y = 0.0;
-            state.reader.current_page = 0;
+            // Recupera la última página únicamente si corresponde al mismo capítulo.
+            let manga = state.details.manga.clone();
+            let saved_page = match (&state.db, &manga) {
+                (Some(db), Some(manga)) => {
+                    let conn = db.lock().unwrap();
+                    manga_dao::upsert(&conn, manga, now_millis()).ok()
+                        .and_then(|mid| history_dao::get(&conn, mid).ok().flatten())
+                        .filter(|(saved_chapter, _, _)| *saved_chapter == chapter_idx(&ch))
+                        .map(|(_, page, _)| page.max(0) as usize)
+                        .unwrap_or(0)
+                }
+                _ => 0,
+            };
+            state.reader.current_page = saved_page;
             state.reader.loading = true;
             state.reader.error = None;
+            // La barra se muestra al entrar (descubrible); tap la esconde.
             state.reader.show_ui = true;
             state.reader.show_filters = false;
 
             // Persiste historial en background.
             let dbh = state.db.clone();
-            let src = ch.source.clone();
-            let manga_url = state.reader.manga_url.clone().or_else(|| state.details.manga.as_ref().map(|m| m.url.clone())).unwrap_or_else(|| ch.url.clone());
             let cidx = chapter_idx(&ch);
-            let manga = state.details.manga.clone();
             std::thread::spawn(move || {
                 if let Some(db) = dbh {
                     let conn = db.lock().unwrap();
+                    // El usuario puede abrir un capítulo antes de que termine
+                    // el guardado asíncrono de Details. Asegura el manga aquí
+                    // para que la entrada de historial no se pierda por una
+                    // carrera entre ambos hilos.
                     if let Some(manga) = manga.as_ref() {
-                        let _ = manga_dao::upsert(&conn, manga, 0);
-                    }
-                    if let Ok(mid) = manga_dao::get_id_by_key(&conn, &src, &manga_url) {
-                        let _ = history_dao::upsert(&conn, mid, cidx, 0, now_millis());
+                        if let Ok(mid) = manga_dao::upsert(&conn, manga, now_millis()) {
+                            let _ = history_dao::upsert(
+                                &conn, mid, cidx, saved_page as i32, now_millis(),
+                            );
+                        }
                     }
                 }
             });
@@ -205,6 +259,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             if let Some(d) = d {
                 let d_headers = d.clone();
                 let src_headers = src.clone();
+                eprintln!("[reader] Load: pidiendo pages+headers src={src}");
                 let pages_task = Task::perform(
                     async move { d.chapter_pages(&src, &ch).await },
                     AppMessage::ReaderPagesFetched,
@@ -220,11 +275,17 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
         }
         Message::PagesFetched(Ok(pages)) => {
+            eprintln!("[reader] PagesFetched OK: {} páginas (headers={})", pages.len(), state.reader.headers.len());
             if pages.is_empty() {
                 state.reader.loading = false;
                 state.reader.error = Some("No se encontraron páginas.".into());
                 return Task::none();
             }
+            let page_count = pages.len();
+            state.reader.current_page = state.reader.current_page.min(page_count - 1);
+            let restored_offset = state.reader.current_page as f32 / page_count as f32;
+            // Descarga concurrente controlada (buffer_unordered de 4 páginas a la vez)
+            // para no saturar Tokio, la red ni la I/O de disco.
             let daemon = state.daemon.clone();
             let cache = state.cache.clone();
             let headers = state.reader.headers.clone();
@@ -273,9 +334,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                     let _ = tx.send(AppMessage::Reader(Message::PageDownloaded { index, entry })).await;
                 }
             });
-            Task::run(tasks_stream, |msg| msg)
+            Task::batch([
+                Task::run(tasks_stream, |msg| msg),
+                scrollable::snap_to(
+                    scrollable::Id::new("reader-pages"),
+                    scrollable::RelativeOffset { x: 0.0, y: restored_offset },
+                ),
+            ])
         }
         Message::PagesFetched(Err(e)) => {
+            eprintln!("[reader] PagesFetched ERR: {e}");
             state.reader.loading = false;
             state.reader.error = Some(e.to_string());
             Task::none()
@@ -289,27 +357,43 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::PageDownloaded { index, entry } => {
+            eprintln!("[reader] PageDownloaded idx={index} ok={}", entry.is_some());
             while state.reader.page_paths.len() <= index {
                 state.reader.page_paths.push(PathBuf::new());
                 state.reader.page_handles.push(None);
                 state.reader.page_dims.push((0, 0));
             }
             if let Some((p, dims)) = entry {
+                let filter = state.reader.color_filter;
+                let handle = load_page_handle(&p, filter)
+                    .unwrap_or_else(|| iced::widget::image::Handle::from_path(p.clone()));
                 state.reader.page_paths[index] = p;
+                state.reader.page_handles[index] = Some(handle);
                 state.reader.page_dims[index] = dims;
             }
-            manage_memory(&mut state.reader)
-        }
-        Message::PageDecoded { index, handle } => {
-            state.reader.page_loading.remove(&index);
-            if index < state.reader.page_handles.len() {
-                state.reader.page_handles[index] = handle;
-            }
+            // Quitar pantalla de carga únicamente cuando haya al menos 1 imagen lista.
             if state.reader.page_handles.iter().any(|h| h.is_some()) {
                 state.reader.loading = false;
             }
             Task::none()
         }
+        Message::FilteredPage { generation, index, entry } => {
+            if generation != state.reader.filter_generation {
+                return Task::none();
+            }
+            if let Some((width, height, rgba)) = entry {
+                state.reader.page_handles[index] = Some(
+                    iced::widget::image::Handle::from_rgba(width, height, rgba),
+                );
+            }
+            state.reader.filter_pending = state.reader.filter_pending.saturating_sub(1);
+            Task::none()
+        }
+
+
+
+
+
         Message::Scrolled(y) => {
             let y = if y.is_finite() { y.clamp(0.0, 1.0) } else { 0.0 };
             let total = state.reader.page_paths.len();
@@ -317,24 +401,31 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 let page_idx = ((y * (total as f32)).floor() as usize).min(total - 1);
                 if page_idx != state.reader.current_page {
                     state.reader.current_page = page_idx;
+                    // Solo actualizamos scroll_y cuando cambia la página activa para recargar el buffer
                     state.reader.scroll_y = y;
+                    update_history(state);
                 }
             }
-            manage_memory(&mut state.reader)
+            Task::none()
         }
+
+
+
+
         Message::PrevPage => {
             state.reader.current_page = state.reader.current_page.saturating_sub(1);
             update_history(state);
-            manage_memory(&mut state.reader)
+            Task::none()
         }
         Message::NextPage => {
             if state.reader.current_page + 1 < state.reader.page_paths.len() {
                 state.reader.current_page += 1;
             }
             update_history(state);
-            manage_memory(&mut state.reader)
+            Task::none()
         }
         Message::NextChapter => {
+            // Carga el siguiente capítulo si existe.
             if state.reader.current_chapter + 1 < state.reader.chapters.len() {
                 state.reader.current_chapter += 1;
                 let ch = state.reader.chapters[state.reader.current_chapter].clone();
@@ -355,6 +446,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 ReadMode::Webtoon => ReadMode::Paginated,
                 ReadMode::Paginated => ReadMode::Webtoon,
             };
+            state.settings.reader_mode = state.reader.read_mode.setting().into();
+            let _ = bakeneko_core::settings::save(&state.settings);
             Task::none()
         }
         Message::ToggleFilterPanel => {
@@ -363,13 +456,47 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         }
         Message::SetFilter(f) => {
             state.reader.color_filter = f;
-            for i in 0..state.reader.page_handles.len() {
-                state.reader.page_handles[i] = None;
+            state.settings.reader_filter = f.setting().into();
+            let _ = bakeneko_core::settings::save(&state.settings);
+            state.reader.filter_generation = state.reader.filter_generation.wrapping_add(1);
+            let generation = state.reader.filter_generation;
+            let paths: Vec<(usize, PathBuf)> = state.reader.page_paths.iter().enumerate()
+                .filter(|(_, path)| !path.as_os_str().is_empty())
+                .map(|(index, path)| (index, path.clone()))
+                .collect();
+            state.reader.filter_pending = paths.len();
+            if f == ColorFilter::None {
+                for (index, path) in paths {
+                    state.reader.page_handles[index] =
+                        Some(iced::widget::image::Handle::from_path(path));
+                }
+                state.reader.filter_pending = 0;
+                return Task::none();
             }
-            state.reader.page_loading.clear();
-            manage_memory(&mut state.reader)
+            let tasks_stream = iced::stream::channel(32, move |mut tx| async move {
+                use iced::futures::{SinkExt, StreamExt};
+                let stream = iced::futures::stream::iter(paths.into_iter().map(|(index, path)| {
+                    async move {
+                        let entry = tokio::task::spawn_blocking(move || {
+                            load_filtered_rgba(&path, f)
+                        }).await.ok().flatten();
+                        (generation, index, entry)
+                    }
+                })).buffer_unordered(2);
+                let mut stream = stream;
+                while let Some((generation, index, entry)) = stream.next().await {
+                    let _ = tx.send(AppMessage::Reader(Message::FilteredPage {
+                        generation, index, entry,
+                    })).await;
+                }
+            });
+            Task::run(tasks_stream, |msg| msg)
         }
+
+
         Message::ToggleUI => {
+            // Tap sobre la página: primero cierra el panel de filtros si está
+            // abierto; el siguiente tap esconde/muestra la barra.
             if state.reader.show_filters {
                 state.reader.show_filters = false;
             } else {
@@ -389,13 +516,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             Task::none()
         }
         Message::Back => {
+            update_history(state);
             if let Some(discord) = &state.discord_presence {
                 discord.clear();
             }
-            state.reader.page_handles.clear();
-            state.reader.page_loading.clear();
-            state.reader.page_paths.clear();
-            state.reader.page_dims.clear();
+            // Al salir, restaura la ventana si quedó en fullscreen.
             let restore = if state.reader.is_fullscreen {
                 state.reader.is_fullscreen = false;
                 set_window_mode(false)
@@ -439,19 +564,21 @@ fn set_window_mode(fullscreen: bool) -> Task<AppMessage> {
 /// Actualiza `history.page_index` en background.
 fn update_history(state: &AppState) {
     let dbh = state.db.clone();
-    if let (Some(ch), Some(db)) = (state.reader.chapter.clone(), dbh) {
-        let src = ch.source.clone();
-        let manga_url = state.reader.manga_url.clone().or_else(|| state.details.manga.as_ref().map(|m| m.url.clone())).unwrap_or_else(|| ch.url.clone());
+    if let (Some(ch), Some(manga), Some(db)) = (
+        state.reader.chapter.clone(), state.details.manga.clone(), dbh,
+    ) {
         let cidx = chapter_idx(&ch);
         let pidx = state.reader.current_page as i32;
         std::thread::spawn(move || {
             let conn = db.lock().unwrap();
-            if let Ok(mid) = manga_dao::get_id_by_key(&conn, &src, &manga_url) {
+            if let Ok(mid) = manga_dao::upsert(&conn, &manga, now_millis()) {
                 let _ = history_dao::upsert(&conn, mid, cidx, pidx, now_millis());
             }
         });
     }
 }
+
+
 
 pub fn apply_color_filter(img: &mut ::image::RgbaImage, filter: ColorFilter) {
     match filter {
@@ -491,26 +618,77 @@ pub fn apply_color_filter(img: &mut ::image::RgbaImage, filter: ColorFilter) {
     }
 }
 
-/// Lee las dimensiones nativas de la página (header rápido sin decode de píxeles).
+/// Límite optimizado de textura para cualquier hardware (CPU/GPU integrado/dedicado).
+
+
+/// Cap a 1400px de ancho max (ancho de pantalla de lectura es <= 900px).
+const MAX_TEX_W: u32 = 1200;
+const MAX_TEX_H: u32 = 3000;
+
+
+/// Lee las dimensiones de la página (header, sin decode); si exceden el
+/// límite de textura, re-escala el archivo en sitio. Devuelve (w, h) finales,
+/// o `None` si el archivo no es una imagen decodificable.
 fn fit_page_to_texture_limits(path: &std::path::Path) -> Option<(u32, u32)> {
-    ::image::image_dimensions(path).ok()
+    let (w, h) = match ::image::image_dimensions(path) {
+        Ok(dims) => dims,
+        Err(_) => return None,
+    };
+    if w <= MAX_TEX_W && h <= MAX_TEX_H {
+        return Some((w, h));
+    }
+    let img = match ::image::open(path) {
+        Ok(i) => i,
+        Err(_) => return Some((w, h)),
+    };
+    let scale = (MAX_TEX_W as f32 / w as f32).min(MAX_TEX_H as f32 / h as f32);
+    let nw = ((w as f32 * scale) as u32).max(1);
+    let nh = ((h as f32 * scale) as u32).max(1);
+    let resized = img.resize(nw, nh, ::image::imageops::FilterType::Nearest);
+    let tmp_path = path.with_extension("tmp_resize");
+    if resized.save(&tmp_path).is_ok() {
+        let _ = std::fs::rename(&tmp_path, path);
+    }
+    Some((nw, nh))
 }
 
 fn load_page_handle(path: &std::path::Path, filter: ColorFilter) -> Option<iced::widget::image::Handle> {
-    let img = ::image::open(path).ok()?;
-    let mut rgba = img.to_rgba8();
-    if filter != ColorFilter::None {
-        apply_color_filter(&mut rgba, filter);
+    if filter == ColorFilter::None {
+        return Some(iced::widget::image::Handle::from_path(path.to_path_buf()));
     }
+    let (nw, nh) = fit_page_to_texture_limits(path)?;
+    let img = ::image::open(path).ok()?;
+    let resized = img.resize(nw, nh, ::image::imageops::FilterType::Nearest);
+    let mut rgba = resized.to_rgba8();
+    apply_color_filter(&mut rgba, filter);
     let (width, height) = rgba.dimensions();
     Some(iced::widget::image::Handle::from_rgba(width, height, rgba.into_raw()))
 }
+
+fn load_filtered_rgba(
+    path: &std::path::Path,
+    filter: ColorFilter,
+) -> Option<(u32, u32, Vec<u8>)> {
+    let (width, height) = fit_page_to_texture_limits(path)?;
+    let img = ::image::open(path).ok()?;
+    let resized = img.resize(width, height, ::image::imageops::FilterType::Nearest);
+    let mut rgba = resized.to_rgba8();
+    apply_color_filter(&mut rgba, filter);
+    Some((width, height, rgba.into_raw()))
+}
+
+
+
+
+
+
 
 /// Vista del lector: webtoon (scroll vertical) o paginated (una página),
 /// con overlays flotantes: X para salir, chip contador de páginas, panel
 /// inferior translúcido y panel de filtros — espejo del panel del original.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     use iced::widget::{mouse_area, stack};
+    let accent = crate::theme::accent(&state.settings);
 
     // --- Contenido de páginas (área central, fondo negro puro) ---
     let page_element = |handle: &iced::widget::image::Handle, fit: ContentFit| -> Element<'_, AppMessage> {
@@ -538,8 +716,9 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .center_x(Length::Fill)
         .center_y(Length::Fill)
         .into()
-    } else if state.reader.loading {
+    } else if state.reader.loading || !state.reader.page_handles.iter().any(|h| h.is_some()) {
         // Cargando páginas
+
         container(text("Cargando páginas…").size(16).color(palette::TEXT_MUTED))
             .width(Length::Fill)
             .height(Length::Fill)
@@ -554,35 +733,42 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
                 let mut col = Column::new().spacing(4).max_width(900);
                 for idx in 0..state.reader.page_paths.len() {
-                    let (w, h) = state.reader.page_dims.get(idx).copied().unwrap_or((0, 0));
-                    let scaled_h = if w > 0 {
-                        h as f32 * display_w / w as f32
-                    } else {
-                        viewport_h
-                    };
+                    // Mantener solo cinco páginas dentro del árbol gráfico.
+                    // Dibujar todos los handles a la vez llena el atlas de
+                    // texturas de wgpu en capítulos largos y termina en
+                    // `Not enough memory left`. Las páginas lejanas conservan
+                    // su altura para que el scroll no salte.
+                    let inside_render_window = idx.abs_diff(state.reader.current_page) <= 2;
+                    if inside_render_window {
+                        if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
+                            col = col.push(page_element(handle, ContentFit::Contain));
+                            continue;
+                        }
+                    }
 
-                    if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
-                        col = col.push(
-                            image(handle.clone())
-                                .width(Length::Fixed(display_w))
-                                .height(Length::Fixed(scaled_h))
-                                .content_fit(ContentFit::Fill)
-                        );
-                    } else {
+                    {
+                        // Placeholder con la altura real escalada.
+                        // También cubre páginas aún no descargadas.
+                        let (w, h) = state.reader.page_dims.get(idx).copied().unwrap_or((0, 0));
+                        let scaled_h = if w > 0 {
+                            h as f32 * display_w / w as f32
+                        } else {
+                            viewport_h
+                        };
                         col = col.push(iced::widget::Space::new(
-                            Length::Fixed(display_w),
+                            Length::Fill,
                             Length::Fixed(scaled_h),
                         ));
                     }
                 }
 
                 scrollable(container(col).center_x(Length::Fill))
+                    .id(scrollable::Id::new("reader-pages"))
                     .style(crate::theme::scrollable_style)
                     .width(Length::Fill)
                     .on_scroll(|vp| {
                         AppMessage::Reader(Message::Scrolled(vp.relative_offset().y))
                     })
-                    .style(crate::theme::thin_scrollbar)
                     .height(Length::Fill)
                     .into()
             }
@@ -616,20 +802,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .on_press(AppMessage::Reader(Message::ToggleUI))
         .into();
 
-    // --- Botón X (cerrar) top-left, círculo terracota ---
+    // --- Botón X (cerrar) top-left ---
     let close_btn = container(
         button(icon::glyph(icon::CLOSE, 18, palette::ON_ACCENT))
             .on_press(AppMessage::Reader(Message::Back))
-            .style(|_t, _s| button::Style {
-                background: Some(palette::ACCENT.into()),
-                text_color: palette::ON_ACCENT,
-                border: iced::Border {
-                    color: Color::TRANSPARENT,
-                    width: 0.0,
-                    radius: crate::theme::radius(20.0),
-                },
-                ..Default::default()
-            })
+            .style(crate::theme::primary_button)
             .padding(10),
     )
     .padding(16);
@@ -655,7 +832,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         button(
             text(label)
                 .size(13)
-                .color(if active { palette::ACCENT } else { palette::TEXT_MUTED }),
+                .color(if active { accent } else { palette::TEXT_MUTED }),
         )
         .on_press(AppMessage::Reader(msg))
         .style(crate::theme::link_button)
@@ -726,7 +903,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                         icon::glyph(
                             icon::CHECK,
                             15,
-                            if active { palette::ACCENT } else { Color::TRANSPARENT },
+                            if active { accent } else { Color::TRANSPARENT },
                         ),
                         text(f.label()).size(13),
                     ]
@@ -857,45 +1034,4 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             ..Default::default()
         })
         .into()
-}
-
-fn manage_memory(state: &mut State) -> Task<AppMessage> {
-    let mut tasks = Vec::new();
-    let total = state.page_paths.len();
-    if total == 0 {
-        return Task::none();
-    }
-    
-    // Ventana de memoria: +/- 2 páginas alrededor de la actual (buffer continuo para webtoon)
-    let window_start = state.current_page.saturating_sub(2);
-    let window_end = (state.current_page + 2).min(total - 1);
-    
-    for i in 0..total {
-        if i < window_start || i > window_end {
-            // Fuera de la ventana: liberar RAM
-            if state.page_handles.get(i).map(|o| o.is_some()).unwrap_or(false) {
-                state.page_handles[i] = None;
-            }
-        } else {
-            // Dentro de la ventana: Cargar si no está en RAM ni en loading
-            if let Some(None) = state.page_handles.get(i) {
-                if !state.page_loading.contains(&i) {
-                    if let Some(path) = state.page_paths.get(i) {
-                        if !path.as_os_str().is_empty() {
-                            state.page_loading.insert(i);
-                            let p = path.clone();
-                            let filter = state.color_filter;
-                            tasks.push(Task::perform(
-                                tokio::task::spawn_blocking(move || {
-                                    load_page_handle(&p, filter)
-                                }),
-                                move |res| AppMessage::Reader(Message::PageDecoded { index: i, handle: res.unwrap_or(None) })
-                            ));
-                        }
-                    }
-                }
-            }
-        }
-    }
-    Task::batch(tasks)
 }

@@ -2,20 +2,33 @@
 //! columnas (sub-nav "Apariencia"/"Lector" a la izquierda; panel derecho
 //! con Previsualización + dropdowns de Tema, Color de Acento y Densidad
 //! de Portadas). Cada cambio persiste vía `settings::save` (write-through).
-use iced::widget::{column, container, pick_list, row, text, text_input, toggler};
-use iced::{Element, Length, Task};
+use iced::widget::{column, container, pick_list, row, scrollable, text, toggler};
+use iced::{Border, Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
 use bakeneko_core::settings::save;
 use crate::theme::palette;
 use crate::widgets::icon;
 
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum Section {
+    #[default]
+    Appearance,
+    Reader,
+}
+
+#[derive(Debug, Default)]
+pub struct State {
+    pub section: Section,
+}
+
 #[derive(Debug, Clone)]
 pub enum Message {
-    ThemeChanged(String),
+    SectionChanged(Section),
     AccentChanged(String),
     DensityChanged(String),
-    DiscordClientIdChanged(String),
+    ReaderModeChanged(String),
+    ReaderFilterChanged(String),
     DiscordPresenceChanged(bool),
     DiscordAdultChanged(bool),
 }
@@ -25,22 +38,19 @@ pub enum Message {
 /// `state.error` sin romper el event loop).
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
-        Message::ThemeChanged(t) => state.settings.theme = t,
+        Message::SectionChanged(section) => {
+            state.settings_state.section = section;
+            return Task::none();
+        }
         Message::AccentChanged(a) => state.settings.accent = a,
         Message::DensityChanged(d) => state.settings.library_view = d,
-        Message::DiscordClientIdChanged(id) => {
-            state.settings.discord_client_id = id;
-            if state.settings.discord_presence_enabled {
-                state.discord_presence = crate::discord_presence::DiscordPresence::start(
-                    &state.settings.discord_client_id,
-                );
-            }
-        }
+        Message::ReaderModeChanged(mode) => state.settings.reader_mode = mode,
+        Message::ReaderFilterChanged(filter) => state.settings.reader_filter = filter,
         Message::DiscordPresenceChanged(enabled) => {
             state.settings.discord_presence_enabled = enabled;
             state.discord_presence = enabled
                 .then(|| crate::discord_presence::DiscordPresence::start(
-                    &state.settings.discord_client_id,
+                    bakeneko_core::settings::DISCORD_APPLICATION_ID,
                 ))
                 .flatten();
         }
@@ -55,19 +65,63 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 
 /// Vista: row de dos columnas — sub-nav + panel.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    // Sub-nav izquierda.
-    let apariencia = text("Apariencia").size(14).color(palette::ACCENT);
-    let lector = text("Lector").size(14).color(palette::TEXT_MUTED);
-    let subnav = column![apariencia, lector].spacing(16).padding(iced::Padding::new(8.0));
+    let accent = crate::theme::accent(&state.settings);
+    // Navegación real entre las dos secciones de ajustes.
+    let apariencia = iced::widget::button(text("Apariencia").size(14))
+        .on_press(AppMessage::Settings(Message::SectionChanged(Section::Appearance)))
+        .style(crate::theme::nav_button(state.settings_state.section == Section::Appearance))
+        .padding([9, 12])
+        .width(Length::Fill);
+    let lector = iced::widget::button(text("Lector y actividad").size(14))
+        .on_press(AppMessage::Settings(Message::SectionChanged(Section::Reader)))
+        .style(crate::theme::nav_button(state.settings_state.section == Section::Reader))
+        .padding([9, 12])
+        .width(Length::Fill);
+    let subnav = container(column![apariencia, lector].spacing(4))
+        .style(crate::theme::card_container)
+        .padding(6)
+        .width(Length::Fixed(170.0));
 
-    // Previsualización: card con placeholders de portada.
+    // Previsualización viva: muestra las mismas superficies y contraste que
+    // usan las tarjetas reales, actualizada con cada cambio de esquema.
+    let (preview_bg, preview_text, preview_accent) =
+        crate::theme::preview_colors(&state.settings);
+    let tile_height = if state.settings.library_view.eq_ignore_ascii_case("compact") {
+        78.0
+    } else {
+        96.0
+    };
     let preview_covers = (0..4)
         .map(|_| {
-            container(icon::glyph(icon::IMAGE, 28, palette::TEXT_DIM))
-                .center_x(Length::Fixed(60.0))
-                .center_y(Length::Fixed(90.0))
-                .style(crate::theme::card_container)
-                .into()
+            let accent = preview_accent;
+            container(
+                column![
+                    container(icon::glyph(icon::IMAGE, 22, preview_text))
+                        .center_x(Length::Fill)
+                        .center_y(Length::Fill)
+                        .height(Length::Fill),
+                    container(text(""))
+                        .height(Length::Fixed(3.0))
+                        .width(Length::Fill)
+                        .style(move |_| iced::widget::container::Style {
+                            background: Some(accent.into()),
+                            ..Default::default()
+                        }),
+                ]
+                .spacing(0),
+            )
+            .width(Length::Fixed(58.0))
+            .height(Length::Fixed(tile_height))
+            .style(move |_| iced::widget::container::Style {
+                background: Some(preview_bg.into()),
+                border: Border {
+                    color: accent,
+                    width: 1.0,
+                    radius: crate::theme::radius(0.0),
+                },
+                ..Default::default()
+            })
+            .into()
         })
         .collect::<Vec<Element<'_, AppMessage>>>();
     let preview = container(
@@ -78,22 +132,18 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .spacing(12)
         .padding(16),
     )
-    .style(crate::theme::card_container)
-    .width(Length::Fill);
-
-    let tema = pick_list(
-        vec!["SYSTEM".to_string(), "DARK".to_string(), "LIGHT".to_string()],
-        Some(state.settings.theme.to_uppercase()),
-        |t| AppMessage::Settings(Message::ThemeChanged(t.to_lowercase())),
-    )
-    .style(crate::theme::dropdown)
-    .menu_style(crate::theme::dropdown_menu)
+    .style(crate::theme::panel_container)
     .width(Length::Fill);
 
     let acento = pick_list(
-        vec!["TERRACOTTA".to_string()],
-        Some("TERRACOTTA".to_string()),
-        |a| AppMessage::Settings(Message::AccentChanged(a)),
+        crate::theme::COLOR_SCHEMES
+            .iter()
+            .map(|value| (*value).to_owned())
+            .collect::<Vec<_>>(),
+        Some(crate::theme::scheme_label(&state.settings.accent).to_owned()),
+        |label| AppMessage::Settings(Message::AccentChanged(
+            crate::theme::scheme_id(&label).to_owned(),
+        )),
     )
     .style(crate::theme::dropdown)
     .menu_style(crate::theme::dropdown_menu)
@@ -101,20 +151,43 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     let densidad = pick_list(
         vec!["COMFORTABLE".to_string(), "COMPACT".to_string()],
-        Some("COMFORTABLE".to_string()),
-        |d| AppMessage::Settings(Message::DensityChanged(d)),
+        Some(if state.settings.library_view.eq_ignore_ascii_case("compact") {
+            "COMPACT"
+        } else {
+            "COMFORTABLE"
+        }.to_string()),
+        |d| AppMessage::Settings(Message::DensityChanged(d.to_ascii_lowercase())),
     )
     .style(crate::theme::dropdown)
     .menu_style(crate::theme::dropdown_menu)
     .width(Length::Fill);
 
-    let discord_id = text_input(
-        "Application ID de Discord",
-        &state.settings.discord_client_id,
+    let reader_mode = pick_list(
+        vec!["WEBTOON".to_string(), "PAGINADO".to_string()],
+        Some(if state.settings.reader_mode == "paginated" { "PAGINADO" } else { "WEBTOON" }.to_string()),
+        |mode| AppMessage::Settings(Message::ReaderModeChanged(
+            if mode == "PAGINADO" { "paginated" } else { "webtoon" }.to_string(),
+        )),
     )
-    .on_input(|id| AppMessage::Settings(Message::DiscordClientIdChanged(id)))
-    .style(crate::theme::search_input)
-    .padding([8, 12]);
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fill);
+
+    let reader_filter = pick_list(
+        vec!["NINGUNO", "INVERTIDO", "ESCALA DE GRISES", "SEPIA", "ANTI LUZ AZUL"]
+            .into_iter().map(str::to_string).collect::<Vec<_>>(),
+        Some(match state.settings.reader_filter.as_str() {
+            "inverted" => "INVERTIDO", "grayscale" => "ESCALA DE GRISES",
+            "sepia" => "SEPIA", "bluelight" => "ANTI LUZ AZUL", _ => "NINGUNO",
+        }.to_string()),
+        |filter| AppMessage::Settings(Message::ReaderFilterChanged(match filter.as_str() {
+            "INVERTIDO" => "inverted", "ESCALA DE GRISES" => "grayscale",
+            "SEPIA" => "sepia", "ANTI LUZ AZUL" => "bluelight", _ => "none",
+        }.to_string())),
+    )
+    .style(crate::theme::dropdown)
+    .menu_style(crate::theme::dropdown_menu)
+    .width(Length::Fill);
 
     let discord_enabled = toggler(state.settings.discord_presence_enabled)
         .label("Mostrar lo que estoy leyendo")
@@ -127,7 +200,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let discord_status = if state.settings.discord_presence_enabled
         && state.discord_presence.is_none()
     {
-        "Introduce un Application ID numérico válido."
+        "No se pudo iniciar la conexión oficial con Discord."
     } else if let Some(discord) = &state.discord_presence {
         match discord.status() {
             crate::discord_presence::ConnectionStatus::Connected => "Conectado a Discord",
@@ -140,35 +213,51 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         "Desactivado"
     };
 
-    let panel = column![
-        preview,
-        text("Tema").size(14).color(palette::TEXT),
-        tema,
-        text("Color de Acento").size(14).color(palette::TEXT),
-        acento,
-        text("Densidad de Portadas").size(14).color(palette::TEXT),
-        densidad,
-        text("Discord Rich Presence").size(16).color(palette::ACCENT),
-        text("Bakeneko incluye su Application ID oficial; puedes sustituirlo para desarrollo.")
-            .size(12).color(palette::TEXT_MUTED),
-        discord_id,
-        discord_enabled,
-        discord_adult,
-        text(discord_status).size(12).color(palette::TEXT_DIM),
-    ]
-    .spacing(10)
-    .padding(iced::Padding::new(16.0))
-    .width(Length::Fill);
+    let contents = match state.settings_state.section {
+        Section::Appearance => column![
+            text("Apariencia").size(18).color(accent),
+            preview,
+            text("Esquema de color").size(14).color(palette::TEXT),
+            acento,
+            text("Densidad de portadas").size(14).color(palette::TEXT),
+            densidad,
+        ].spacing(12),
+        Section::Reader => column![
+            text("Lector").size(18).color(accent),
+            text("Modo de lectura predeterminado").size(14).color(palette::TEXT),
+            reader_mode,
+            text("Filtro visual predeterminado").size(14).color(palette::TEXT),
+            reader_filter,
+            text("Actividad de Discord").size(18).color(accent),
+            text("Usa exclusivamente la aplicación oficial de Bakeneko.")
+                .size(12).color(palette::TEXT_MUTED),
+            discord_enabled,
+            discord_adult,
+            text(discord_status).size(12).color(palette::TEXT_DIM),
+        ].spacing(12),
+    };
 
-    let body = column![
-        text("Ajustes").size(22).color(palette::TEXT),
-        row![subnav, panel].spacing(24),
+    let panel = container(
+        scrollable(contents)
+            .style(crate::theme::scrollable_style)
+            .height(Length::Fill),
+    )
+    .padding(iced::Padding::new(16.0))
+    .style(crate::theme::panel_container)
+    .width(Length::Fill)
+    .height(Length::Fill);
+
+    let settings_body: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
+        column![subnav, panel].spacing(14).width(Length::Fill).into()
+    } else {
+        row![subnav, panel].spacing(24).width(Length::Fill).into()
+    };
+
+    column![
+        text("Ajustes").size(28).color(palette::TEXT),
+        settings_body,
     ]
     .spacing(16)
-    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 });
-
-    iced::widget::scrollable(body)
-        .style(crate::theme::thin_scrollbar)
-        .height(Length::Fill)
-        .into()
+    .height(Length::Fill)
+    .into()
 }

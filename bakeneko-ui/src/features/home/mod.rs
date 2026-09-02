@@ -64,6 +64,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 /// Cabecera de sección: label muted + línea divisoria que ocupa el resto.
 fn section_header<'a>(label: &str) -> Element<'a, AppMessage> {
     row![
+        container(text(""))
+            .style(crate::theme::accent_rule)
+            .width(Length::Fixed(22.0))
+            .height(Length::Fixed(3.0)),
         text(label.to_string()).size(14).color(palette::TEXT_MUTED),
         container(text(""))
             .style(crate::theme::divider)
@@ -76,7 +80,20 @@ fn section_header<'a>(label: &str) -> Element<'a, AppMessage> {
 }
 
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    let title = text("Inicio").size(22).color(palette::TEXT);
+    let title = container(
+        row![
+            container(text(""))
+                .style(crate::theme::accent_rule)
+                .width(Length::Fixed(4.0))
+                .height(Length::Fixed(28.0)),
+            text("Inicio").size(28).color(palette::TEXT),
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center),
+    )
+    .style(crate::theme::panel_container)
+    .padding([16, 18])
+    .width(Length::Fill);
 
     // Continuar leyendo: scroll horizontal de covers con "Cap. N".
     let recent_cards: Vec<Element<'_, AppMessage>> = state
@@ -92,17 +109,27 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             )
         })
         .collect();
-    let recent_row = scrollable(
-        Row::with_children(recent_cards).spacing(16),
-    )
-    .direction(scrollable::Direction::Horizontal(Default::default()))
-    .style(crate::theme::thin_scrollbar);
+    let recent_row = container(scrollable(
+        Row::with_children(recent_cards)
+            .spacing(16)
+            .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 7.0, left: 0.0 }))
+    .style(crate::theme::scrollable_style)
+    .width(Length::Fill)
+    .height(Length::Shrink)
+    .direction(scrollable::Direction::Horizontal(Default::default())))
+    .style(crate::theme::panel_container)
+    .padding([12, 14])
+    .width(Length::Fill);
 
     // Añadidos recientemente: grid responsivo de la biblioteca.
-    let grid = crate::widgets::cover::cover_grid(
+    let (columns, cover_width) = crate::widgets::cover::grid_metrics(
+        state.window_size.0, &state.settings.library_view,
+    );
+    let grid = crate::widgets::cover::cover_grid_sized(
         &state.library,
         &state.covers,
-        state.window_size.0,
+        columns,
+        cover_width,
         crate::widgets::cover::details_msg,
     );
 
@@ -113,11 +140,8 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         section_header("Añadidos recientemente"),
         grid,
     ]
-    .spacing(16)
-    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 });
+    .spacing(20)
+    .width(Length::Fill);
 
-    scrollable(body)
-        .style(crate::theme::thin_scrollbar)
-        .height(Length::Fill)
-        .into()
+    scrollable(body).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill).into()
 }

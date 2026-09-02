@@ -1,6 +1,3 @@
-#[global_allocator]
-static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
-
 mod app;
 mod discord_presence;
 mod features;
@@ -19,44 +16,30 @@ use bakeneko_core::daemon::client::DaemonClient;
 use bakeneko_core::settings;
 use bakeneko_core::xdg::Xdg;
 
-fn load_font() -> std::borrow::Cow<'static, [u8]> {
-    let mut candidates = vec![
-        bakeneko_core::xdg::Xdg::data_root().join("assets/MaterialIcons.ttf"),
-    ];
-    if let Ok(exe) = std::env::current_exe() {
-        if let Some(dir) = exe.parent() {
-            candidates.push(dir.join("assets/MaterialIcons.ttf"));
-            let mut cur = dir.to_path_buf();
-            for _ in 0..8 {
-                candidates.push(cur.join("assets/MaterialIcons.ttf"));
-                candidates.push(cur.join("bakeneko-ui/assets/MaterialIcons.ttf"));
-                if let Some(p) = cur.parent() {
-                    cur = p.to_path_buf();
-                } else {
-                    break;
-                }
+fn load_font(filename: &str) -> std::borrow::Cow<'static, [u8]> {
+    let mut path = bakeneko_core::xdg::Xdg::data_root()
+        .join("assets")
+        .join(filename);
+    if !path.exists() {
+        if let Ok(exe) = std::env::current_exe() {
+            if let Some(dir) = exe.parent() {
+                path = dir.join("assets").join(filename);
             }
         }
     }
-    if let Ok(cwd) = std::env::current_dir() {
-        let mut cur = cwd;
-        for _ in 0..8 {
-            candidates.push(cur.join("assets/MaterialIcons.ttf"));
-            candidates.push(cur.join("bakeneko-ui/assets/MaterialIcons.ttf"));
-            if let Some(p) = cur.parent() {
-                cur = p.to_path_buf();
-            } else {
-                break;
-            }
+    if !path.exists() {
+        path = std::env::current_dir()
+            .unwrap_or_default()
+            .join("assets")
+            .join(filename);
+    }
+    match std::fs::read(&path) {
+        Ok(bytes) => bytes.into(),
+        Err(e) => {
+            eprintln!("WARN: no se pudo cargar fuente {:?}: {}", path, e);
+            vec![].into()
         }
     }
-    for path in candidates {
-        if let Ok(bytes) = std::fs::read(&path) {
-            return bytes.into();
-        }
-    }
-    eprintln!("WARN: no se pudo cargar fuente MaterialIcons.ttf");
-    vec![].into()
 }
 
 /// Binario bakeneko. iced 0.13 cambió `Application` (trait, estilo 0.12) por
@@ -73,7 +56,10 @@ fn main() -> iced::Result {
     iced::application("bakeneko", app::update, app::view)
         .theme(|state| theme::iced_theme(&state.settings))
         .subscription(app::subscription)
-        .font(load_font())
+        .default_font(iced::Font::with_name("BlexMono Nerd Font"))
+        .font(load_font("MaterialIcons.ttf"))
+        .font(load_font("TerminessNerdFont-Regular.ttf"))
+        .font(load_font("BlexMonoNerdFont-Regular.ttf"))
         .window_size(iced::Size::new(1280.0, 800.0))
         .run_with(init_state)
 }
@@ -94,7 +80,7 @@ fn main() -> iced::Result {
 fn init_state() -> (AppState, Task<Message>) {
     let loaded_settings = settings::load();
     let discord_presence = loaded_settings.discord_presence_enabled
-        .then(|| discord_presence::DiscordPresence::start(&loaded_settings.discord_client_id))
+        .then(|| discord_presence::DiscordPresence::start(settings::DISCORD_APPLICATION_ID))
         .flatten();
     // 1) Abrir + migrar la base SQLite en $XDG_DATA_HOME/bakeneko/bakeneko.sqlite.
     //    El `AppState.db` contiene `Arc<Mutex<Connection>>` para que los

@@ -31,6 +31,17 @@ pub fn recent(conn: &Connection, limit: i64) -> Result<Vec<(i64, i32, i32, i64)>
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+pub fn get(conn: &Connection, manga_id: i64) -> Result<Option<(i32, i32, i64)>, DbError> {
+    let mut stmt = conn.prepare(
+        "SELECT chapter_index, page_index, updated_at FROM history WHERE manga_id=?1",
+    )?;
+    let mut rows = stmt.query(params![manga_id])?;
+    match rows.next()? {
+        Some(row) => Ok(Some((row.get(0)?, row.get(1)?, row.get(2)?))),
+        None => Ok(None),
+    }
+}
+
 /// Borra el historial de un manga (UI pendiente).
 #[allow(dead_code)]
 pub fn delete(conn: &Connection, manga_id: i64) -> Result<(), DbError> {

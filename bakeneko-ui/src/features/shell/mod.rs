@@ -4,7 +4,7 @@
 //! logo en terracota mayúsculas espaciadas, items de nav con ícono Material +
 //! label, activo = tinte acento + texto blanco, hover = superficie cálida.
 use iced::widget::{button, column, container, row, text, Column};
-use iced::{Element, Length};
+use iced::{Color, Element, Length};
 
 use crate::theme::palette;
 use crate::widgets::icon;
@@ -28,12 +28,22 @@ const NAV_ITEMS: [(&str, Screen, char); 6] = [
 /// con logo + items; el contenido ocupa el resto con padding.
 pub fn view<'a, M: 'a + From<NavMsg> + Clone>(
     screen: &Screen,
+    accent: Color,
     content: Element<'a, M>,
 ) -> Element<'a, M> {
     // Logo BAKENEKO (terracota, bold, letter-spaced aprox. con mayúsculas).
-    let logo = text("BAKENEKO")
-        .size(20)
-        .color(palette::ACCENT);
+    let logo = row![
+        container(text(""))
+            .style(crate::theme::accent_rule)
+            .width(Length::Fixed(4.0))
+            .height(Length::Fixed(22.0)),
+        text("BAKENEKO")
+            .size(20)
+            .font(iced::Font::with_name("Terminess Nerd Font"))
+            .color(accent),
+    ]
+    .spacing(8)
+    .align_y(iced::Alignment::Center);
 
     let buttons: Vec<Element<'a, M>> = NAV_ITEMS
         .iter()
@@ -55,11 +65,11 @@ pub fn view<'a, M: 'a + From<NavMsg> + Clone>(
         })
         .collect();
 
-    let rail = Column::with_children(buttons).spacing(2);
+    let rail = Column::with_children(buttons).spacing(5);
 
     let sidebar = container(
         column![logo, rail]
-            .spacing(24)
+            .spacing(28)
             .padding(iced::Padding::new(16.0)),
     )
     .style(crate::theme::sidebar_container)

@@ -32,6 +32,7 @@ pub struct AppState {
     pub library_state: library::State,
     pub details: details::State,
     pub reader: reader::State,
+    pub settings_state: settings::State,
     pub discord_presence: Option<crate::discord_presence::DiscordPresence>,
     pub library: Vec<Manga>,
     /// Manager de descargas, creado de forma perezosa (una vez que daemon +
@@ -41,10 +42,8 @@ pub struct AppState {
     pub downloads_state: downloads::State,
     /// Estado de extensiones (query + toggles).
     pub extensions: extensions::State,
-    /// Portadas cacheadas: `cover_url` → handle de iced (o None si falló).
-    pub covers: std::collections::HashMap<String, Option<iced::widget::image::Handle>>,
-    /// Versión del cache de portadas, incrementada con cada cambio (para invalidar `lazy` widgets)
-    pub covers_version: usize,
+    /// Portadas cacheadas: `cover_url` → path en disco (vía `ImageCache`).
+    pub covers: std::collections::HashMap<String, std::path::PathBuf>,
     /// Headers HTTP para bajar portadas (Referer etc.). Por ahora vacío;
     /// se puede poblar con `source_headers` por fuente si hace falta.
     pub cover_headers: std::collections::HashMap<String, String>,
@@ -69,13 +68,13 @@ impl Default for AppState {
             library_state: library::State::default(),
             details: details::State::default(),
             reader: reader::State::default(),
+            settings_state: settings::State::default(),
             discord_presence: None,
             library: Vec::new(),
             downloads: None,
             downloads_state: downloads::State::default(),
             extensions: extensions::State::default(),
             covers: std::collections::HashMap::new(),
-            covers_version: 0,
             cover_headers: std::collections::HashMap::new(),
             window_size: (1280.0, 800.0),
         }
@@ -108,8 +107,8 @@ pub enum Message {
     Download(downloads::Message),
     Settings(settings::Message),
     Extensions(extensions::Message),
-    /// Resultado de la descarga de una portada (`cover_url` → handle de iced).
-    CoverLoaded(String, Option<iced::widget::image::Handle>),
+    /// Resultado de la descarga de una portada (`cover_url` → path en disco).
+    CoverLoaded(String, Option<std::path::PathBuf>),
     /// Resize de la ventana (para recalcular `per_row` de los grids).
     WindowResized(f32, f32),
 }
@@ -252,17 +251,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Download(m) => downloads::update(state, m),
         Message::Settings(m) => settings::update(state, m),
         Message::Extensions(m) => extensions::update(state, m),
-        Message::CoverLoaded(url, handle) => {
-            if let Some(h) = handle {
-                state.covers.insert(url, Some(h));
-                // Cap de portadas en memoria (LRU): mantener hasta 1000 portadas activas
-                if state.covers.len() > 1000 {
-                    let keys_to_remove: Vec<String> = state.covers.keys().take(state.covers.len() - 1000).cloned().collect();
-                    for k in keys_to_remove {
-                        state.covers.remove(&k);
-                    }
-                }
-                state.covers_version += 1;
+        Message::CoverLoaded(url, path) => {
+            if let Some(p) = path {
+                state.covers.insert(url, p);
             }
             Task::none()
         }
@@ -392,5 +383,9 @@ pub fn view(state: &AppState) -> Element<'_, Message> {
         Screen::Settings => settings::view(state),
         Screen::Extensions => extensions::view(state),
     };
-    crate::features::shell::view(&state.screen, content)
+    crate::features::shell::view(
+        &state.screen,
+        crate::theme::accent(&state.settings),
+        content,
+    )
 }

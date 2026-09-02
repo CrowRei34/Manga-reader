@@ -16,6 +16,8 @@ pub struct Settings {
     pub default_source: Option<String>,
     pub download_concurrency: u32,
     pub library_view: String,
+    pub reader_mode: String,
+    pub reader_filter: String,
     pub discord_client_id: String,
     pub discord_presence_enabled: bool,
     pub discord_show_adult: bool,
@@ -24,8 +26,9 @@ pub struct Settings {
 impl Default for Settings {
     fn default() -> Self {
         Self {
-            theme: "dark".into(), accent: "#7c5cbf".into(), default_source: None,
+            theme: "dark".into(), accent: "terracotta".into(), default_source: None,
             download_concurrency: 2, library_view: "grid".into(),
+            reader_mode: "webtoon".into(), reader_filter: "none".into(),
             discord_client_id: DISCORD_APPLICATION_ID.into(), discord_presence_enabled: true,
             discord_show_adult: false,
         }
@@ -36,10 +39,14 @@ fn settings_path() -> PathBuf { Xdg::config_root().join("settings.json") }
 
 pub fn load() -> Settings {
     let path = settings_path();
-    fs::read_to_string(&path)
+    let mut settings: Settings = fs::read_to_string(&path)
         .ok()
         .and_then(|s| serde_json::from_str(&s).ok())
-        .unwrap_or_default()
+        .unwrap_or_default();
+    // La instalación pública siempre usa la aplicación oficial de Bakeneko.
+    // El ID de Discord es público, pero no debe poder sustituirse desde la UI.
+    settings.discord_client_id = DISCORD_APPLICATION_ID.into();
+    settings
 }
 
 pub fn save(s: &Settings) -> std::io::Result<()> {

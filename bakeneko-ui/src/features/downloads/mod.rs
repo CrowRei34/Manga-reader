@@ -9,7 +9,7 @@
 //! state, total, done)`), así que al cargar se enriquece con los títulos de
 //! capítulo desde `chapter_dao::list_for_manga` (mismo `&mut Connection` del
 //! closure `db_blocking`, sin queries adicionales).
-use iced::widget::{button, column, row, scrollable, text};
+use iced::widget::{button, column, container, row, scrollable, text};
 use iced::{Element, Length, Task};
 use std::collections::HashMap;
 
@@ -158,26 +158,35 @@ fn state_label(s: DownloadState) -> &'static str {
 /// ícono de pausa; filas con ícono de estado (✓ hecho, ! error, ↓ activo),
 /// título del manga + capítulo, botón ✕ para quitar de la cola.
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    let header = row![
-        text("Descargas").size(22).color(palette::TEXT),
+    let accent = crate::theme::accent(&state.settings);
+    let header = container(row![
+        text("Descargas").size(28).color(palette::TEXT),
         iced::widget::horizontal_space(),
         button(icon::glyph(icon::PAUSE, 18, palette::TEXT_MUTED))
             .style(crate::theme::link_button)
             .padding(6),
     ]
-    .align_y(iced::Alignment::Center);
+    .align_y(iced::Alignment::Center));
+    let header = header
+        .style(crate::theme::panel_container)
+        .padding([14, 16])
+        .width(Length::Fill);
 
     if state.downloads_state.entries.is_empty() {
         return column![
             header,
-            text("Sin descargas").size(15).color(palette::TEXT_MUTED),
-            button(text("Recargar").size(13))
-                .on_press(AppMessage::Download(Message::Load))
-                .style(crate::theme::ghost_button)
-                .padding([6, 14]),
+            container(column![
+                text("Sin descargas").size(16).color(palette::TEXT_MUTED),
+                button(text("Recargar").size(13))
+                    .on_press(AppMessage::Download(Message::Load))
+                    .style(crate::theme::ghost_button)
+                    .padding([7, 16]),
+            ].spacing(12).align_x(iced::Alignment::Center))
+                .style(crate::theme::empty_state)
+                .padding(28)
+                .width(Length::Fill),
         ]
-        .spacing(12)
-        .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
+        .spacing(16)
         .into();
     }
 
@@ -192,7 +201,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         let (ic, color) = match e.state {
             DownloadState::Done => (icon::CHECK, palette::SUCCESS),
             DownloadState::Error => (icon::ERROR, palette::DANGER),
-            DownloadState::Downloading => (icon::DOWNLOAD, palette::ACCENT),
+            DownloadState::Downloading => (icon::DOWNLOAD, accent),
             DownloadState::Queued => (icon::DOWNLOAD_FOR_OFFLINE, palette::TEXT_MUTED),
             DownloadState::Idle => (icon::DOWNLOAD_FOR_OFFLINE, palette::TEXT_DIM),
         };
@@ -202,7 +211,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             }
             _ => state_label(e.state).to_string(),
         };
-        row![
+        container(row![
             icon::glyph(ic, 18, color),
             column![
                 text(title).size(14).color(palette::TEXT),
@@ -215,18 +224,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding(6),
         ]
         .spacing(12)
-        .align_y(iced::Alignment::Center)
+        .align_y(iced::Alignment::Center))
+        .style(crate::theme::card_container)
+        .padding([7, 10])
+        .width(Length::Fill)
         .into()
     }))
     .spacing(4);
 
-    column![
-        header,
-        scrollable(rows)
-            .style(crate::theme::thin_scrollbar)
-            .height(Length::Fill)
-    ]
-    .spacing(12)
-    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
-    .into()
+    column![header, scrollable(rows).style(crate::theme::scrollable_style).width(Length::Fill)].spacing(12).into()
 }

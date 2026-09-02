@@ -92,13 +92,21 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .on_input(|query| AppMessage::Library(Message::QueryChanged(query)))
         .style(crate::theme::search_input)
         .padding([8, 12])
-        .width(Length::Fixed(320.0));
-    let title_row = row![
-        text("Biblioteca").size(22).color(palette::TEXT),
-        iced::widget::horizontal_space(),
-        search,
-    ]
-    .align_y(iced::Alignment::Center);
+        .width(if state.window_size.0 < 720.0 { Length::Fill } else { Length::Fixed(320.0) });
+    let title_row: Element<'_, AppMessage> = if state.window_size.0 < 720.0 {
+        column![text("Biblioteca").size(28).color(palette::TEXT), search]
+            .spacing(10)
+            .width(Length::Fill)
+            .into()
+    } else {
+        row![
+            text("Biblioteca").size(28).color(palette::TEXT),
+            iced::widget::horizontal_space(),
+            search,
+        ]
+        .align_y(iced::Alignment::Center)
+        .into()
+    };
 
     // Chips: "Todas" + categorías existentes + "+ Nueva".
     let mut chips: Vec<Element<'_, AppMessage>> = vec![
@@ -131,7 +139,20 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .into(),
         );
     }
-    let chips_row = Row::with_children(chips).spacing(8);
+    let chips_row = container(
+        scrollable(
+            Row::with_children(chips)
+                .spacing(8)
+                .padding([4, 0])
+                .align_y(iced::Alignment::Center),
+        )
+            .style(crate::theme::scrollable_style)
+            .direction(scrollable::Direction::Horizontal(Default::default()))
+            .width(Length::Fill),
+    )
+    .style(crate::theme::panel_container)
+    .padding([8, 10])
+    .width(Length::Fill);
 
     let query = state.library_state.query.trim().to_lowercase();
     let filtered: Vec<Manga> = state.library.iter().filter(|manga| {
@@ -158,10 +179,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         column![text("No hay obras que coincidan con estos filtros.")
             .size(14).color(palette::TEXT_MUTED)]
     } else {
-        column![crate::widgets::cover::cover_grid(
+        let (columns, cover_width) = crate::widgets::cover::grid_metrics(
+            state.window_size.0, &state.settings.library_view,
+        );
+        column![crate::widgets::cover::cover_grid_sized(
             &filtered,
             &state.covers,
-            state.window_size.0,
+            columns,
+            cover_width,
             crate::widgets::cover::details_msg,
         )]
     };
@@ -170,17 +195,15 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .style(crate::theme::content_container)
         .padding(iced::Padding { top: 0.0, bottom: 8.0, left: 0.0, right: 0.0 });
 
+    let grid = container(grid)
+        .style(crate::theme::empty_state)
+        .padding(16)
+        .width(Length::Fill);
+
     column![
         header,
-        container(
-            scrollable(grid)
-                .style(crate::theme::thin_scrollbar)
-                .height(Length::Fill)
-        )
-        .clip(true)
-        .height(Length::Fill)
+        container(scrollable(grid).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill)).clip(true).height(Length::Fill)
     ]
     .spacing(8)
-    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
     .into()
 }

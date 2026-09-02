@@ -15,7 +15,7 @@ use std::collections::BTreeMap;
 use crate::app::{AppState, Message as AppMessage};
 use bakeneko_core::daemon::api::MangaSourceApi;
 use bakeneko_core::db;
-use bakeneko_core::db::dao::manga_dao;
+use bakeneko_core::db::dao::{history_dao, manga_dao};
 use bakeneko_core::error::{DaemonError, DbError};
 use bakeneko_core::models::{Chapter, Manga, MangaRef};
 use crate::features::library;
@@ -33,6 +33,7 @@ pub struct State {
     /// Pantalla desde la que se abrió el detalle (para el botón Atrás).
     pub back_target: Option<Screen>,
     pub in_library: bool,
+    /// Filtro de idioma de capítulos; `None` muestra todos.
     pub language_filter: Option<String>,
 }
 
@@ -42,10 +43,10 @@ pub enum Message {
     Fetched(Result<Manga, DaemonError>),
     ChapterSelected(Chapter),
     ToggleLibrary,
-    LanguageFilterChanged(Option<String>),
     ReadNow,
     DownloadChapter(Chapter),
     DownloadAll,
+    SetLanguage(Option<String>),
     Back,
 }
 
@@ -56,44 +57,23 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::Load(mref) => {
             state.details.loading = true;
+            state.details.manga = None;
             state.details.chapters.clear();
             state.details.language_filter = None;
-            let src = mref.source.clone();
-            let url = mref.url.clone();
-            let cover_url = mref.cover_url.clone();
-
-            let mut in_lib = state.library.iter().any(|manga| {
-                manga.source == src && manga.url == url
+            state.details.in_library = state.library.iter().any(|manga| {
+                manga.source == mref.source && manga.url == mref.url
             });
-            if let Some(db) = &state.db {
-                if let Ok(conn) = db.lock() {
-                    if let Ok(db_in_lib) = manga_dao::is_in_library(&conn, &src, &url) {
-                        in_lib = db_in_lib;
-                    }
-                }
-            }
-            state.details.in_library = in_lib;
-
-            let placeholder_manga = Manga {
-                source: src.clone(),
-                url: url.clone(),
-                title: mref.title.clone(),
-                cover_url: cover_url.clone(),
-                ..Default::default()
-            };
-            state.details.manga = Some(placeholder_manga);
-
             // Guarda la pantalla origen para "Atrás".
             if state.screen != Screen::Details {
                 state.details.back_target = Some(state.screen.clone());
             }
             state.screen = Screen::Details;
             let d = state.daemon.clone();
+            let src = mref.source.clone();
             let manga = Manga {
                 source: mref.source,
                 url: mref.url,
                 title: mref.title,
-                cover_url,
                 ..Default::default()
             };
             if let Some(d) = d {
@@ -138,29 +118,51 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.loading = false;
             Task::none()
         }
-        Message::LanguageFilterChanged(lang) => {
-            state.details.language_filter = lang;
-            Task::none()
-        }
         Message::ChapterSelected(c) => {
-            let idx = state.details.chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
-            state.reader.chapters = state.details.chapters.clone();
+            // Pasa la lista de capítulos + índice de este capítulo al reader
+            // (para navegar ‹ › entre capítulos).
+            let chapters: Vec<Chapter> = state.details.chapters.iter()
+                .filter(|chapter| state.details.language_filter.as_deref()
+                    .map(|filter| chapter_language_key(chapter) == filter)
+                    .unwrap_or(true))
+                .cloned()
+                .collect();
+            let idx = chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
+            state.reader.chapters = chapters;
             state.reader.current_chapter = idx;
-            state.reader.manga_url = state.details.manga.as_ref().map(|m| m.url.clone());
+            // Modo de lectura por defecto desde settings (TODO: mapear).
             Task::batch([
                 Task::done(AppMessage::Reader(reader::Message::Load(c))),
                 Task::done(AppMessage::NavigateTo(Screen::Reader)),
             ])
         }
         Message::ReadNow => {
-            // Abre el primer capítulo (menor número).
-            let first = state
+            // Continúa el último capítulo leído; si no hay historial, comienza
+            // por el primero disponible del idioma seleccionado.
+            let saved_chapter = match (&state.db, &state.details.manga) {
+                (Some(db), Some(manga)) => {
+                    let conn = db.lock().unwrap();
+                    manga_dao::get_id_by_key(&conn, &manga.source, &manga.url).ok()
+                        .and_then(|mid| history_dao::get(&conn, mid).ok().flatten())
+                        .map(|(chapter, _, _)| chapter)
+                }
+                _ => None,
+            };
+            let available: Vec<Chapter> = state
                 .details
                 .chapters
                 .iter()
-                .min_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal))
-                .cloned();
-            match first {
+                .filter(|chapter| state.details.language_filter.as_deref()
+                    .map(|filter| chapter_language_key(chapter) == filter)
+                    .unwrap_or(true))
+                .cloned()
+                .collect();
+            let target = saved_chapter
+                .and_then(|saved| available.iter().find(|chapter| chapter.number as i32 == saved).cloned())
+                .or_else(|| available.into_iter().min_by(|a, b| {
+                    a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal)
+                }));
+            match target {
                 Some(c) => update(state, Message::ChapterSelected(c)),
                 None => Task::none(),
             }
@@ -168,13 +170,13 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         Message::ToggleLibrary => {
             let m_opt = state.details.manga.clone();
             let dbh = state.db.clone();
-            let new_in_lib = !state.details.in_library;
-            state.details.in_library = new_in_lib;
             if let (Some(m), Some(db)) = (m_opt, dbh) {
+                let in_library = !state.details.in_library;
+                state.details.in_library = in_library;
                 return Task::perform(
                     db::db_blocking(db, move |conn| {
                         let id = manga_dao::upsert(conn, &m, 0)?;
-                        manga_dao::set_library_flag(conn, id, new_in_lib)?;
+                        manga_dao::set_library_flag(conn, id, in_library)?;
                         Ok::<(), DbError>(())
                     }),
                     |r| match r {
@@ -200,6 +202,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
             Task::none()
         }
+        Message::SetLanguage(language) => {
+            state.details.language_filter = language;
+            Task::none()
+        }
         Message::Back => {
             let target = state.details.back_target.clone().unwrap_or(Screen::Home);
             Task::done(AppMessage::NavigateTo(target))
@@ -209,6 +215,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 
 /// Vista del feature (réplica del diseño).
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
+    let accent = crate::theme::accent(&state.settings);
     let back = button(
         row![
             icon::glyph(icon::BACK, 16, palette::TEXT_MUTED),
@@ -233,15 +240,12 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     };
 
     // Cover grande (2× la card).
-    let cover_url = m
+    let cover: Element<'_, AppMessage> = match m
         .cover_url
-        .as_deref()
-        .filter(|s| !s.trim().is_empty())
-        .or(m.large_cover_url.as_deref().filter(|s| !s.trim().is_empty()));
-    let cover: Element<'_, AppMessage> = match cover_url
-        .and_then(|u| state.covers.get(u).and_then(|opt| opt.as_ref()))
+        .as_ref()
+        .and_then(|u| state.covers.get(u))
     {
-        Some(handle) => image(handle.clone())
+        Some(path) => image(image::Handle::from_path(path.clone()))
             .width(Length::Fixed(COVER_W * 1.4))
             .height(Length::Fixed(COVER_H * 1.4))
             .content_fit(ContentFit::Cover)
@@ -258,16 +262,18 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         text(m.authors.first().cloned().unwrap_or_default())
             .size(14)
             .color(palette::TEXT_MUTED),
-        text("Sinopsis").size(15).color(palette::ACCENT),
+        text("Sinopsis").size(15).color(accent),
         scrollable(
             text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
                 .size(13)
                 .color(palette::TEXT_MUTED),
         )
-        .style(crate::theme::thin_scrollbar)
+        .style(crate::theme::scrollable_style)
+        .width(Length::Fill)
         .height(Length::Fixed(140.0)),
     ]
-    .spacing(8);
+    .spacing(8)
+    .width(Length::Fill);
 
     let buttons_row = row![
         button(
@@ -281,75 +287,77 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .on_press(AppMessage::Details(Message::ReadNow))
         .style(crate::theme::primary_button)
         .padding([10, 18]),
-        {
-            let (btn_icon, btn_text, btn_color) = if state.details.in_library {
-                (icon::CHECK, "En Biblioteca", palette::SUCCESS)
-            } else {
-                (icon::BOOKMARK, "Añadir a Biblioteca", palette::ACCENT)
-            };
-            button(
-                row![
-                    icon::glyph(btn_icon, 16, btn_color),
-                    text(btn_text).size(14).color(btn_color),
-                ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center),
-            )
-            .on_press(AppMessage::Details(Message::ToggleLibrary))
-            .style(crate::theme::ghost_button)
-            .padding([10, 18])
-        },
+        button(
+            row![
+                icon::glyph(icon::BOOKMARK, 16, accent),
+                text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
+                    .size(14).color(accent),
+            ]
+            .spacing(8)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(AppMessage::Details(Message::ToggleLibrary))
+        .style(crate::theme::ghost_button)
+        .padding([10, 18]),
     ]
     .spacing(12);
 
-    let header_row = row![cover, column![title_block, buttons_row].spacing(12)].spacing(20);
-
-    let all_groups = organize_chapters(&state.details.chapters);
-    let available_langs: Vec<String> = all_groups.keys().cloned().collect();
-
-    let lang_filter_bar = if available_langs.len() > 1 {
-        let is_all_selected = state.details.language_filter.is_none();
-        let all_btn = button(
-            text("Todos").size(12).color(if is_all_selected { palette::ON_ACCENT } else { palette::TEXT_MUTED })
+    let header_row: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
+        container(
+            column![
+                container(cover)
+                    .style(crate::theme::card_container)
+                    .padding(6),
+                column![title_block, buttons_row].spacing(14),
+            ]
+            .spacing(18)
+            .align_x(iced::Alignment::Center),
         )
-        .on_press(AppMessage::Details(Message::LanguageFilterChanged(None)))
-        .style(if is_all_selected { crate::theme::primary_button } else { crate::theme::ghost_button })
-        .padding([4, 10]);
-
-        let mut lang_buttons: Vec<Element<'_, AppMessage>> = vec![all_btn.into()];
-        for l in &available_langs {
-            let is_sel = state.details.language_filter.as_deref() == Some(l.as_str());
-            let btn = button(
-                text(l.clone()).size(12).color(if is_sel { palette::ON_ACCENT } else { palette::TEXT_MUTED })
-            )
-            .on_press(AppMessage::Details(Message::LanguageFilterChanged(Some(l.clone()))))
-            .style(if is_sel { crate::theme::primary_button } else { crate::theme::ghost_button })
-            .padding([4, 10]);
-            lang_buttons.push(btn.into());
-        }
-        Some(row(lang_buttons).spacing(6).align_y(iced::Alignment::Center))
+        .style(crate::theme::panel_container)
+        .padding(14)
+        .width(Length::Fill)
+        .into()
     } else {
-        None
+        container(
+            row![
+                container(cover)
+                    .style(crate::theme::card_container)
+                    .padding(6),
+                column![title_block, buttons_row].spacing(14),
+            ]
+            .spacing(22)
+            .align_y(iced::Alignment::Start),
+        )
+        .style(crate::theme::panel_container)
+        .padding(18)
+        .width(Length::Fill)
+        .into()
     };
 
-    let filtered_chapters: Vec<Chapter> = if let Some(selected_lang) = &state.details.language_filter {
-        state.details.chapters.iter().filter(|c| language_label(c) == selected_lang).cloned().collect()
-    } else {
-        state.details.chapters.clone()
-    };
-
-    // Agrupa por idioma y ordena numéricamente dentro de cada sección.
+    // Filtro rápido por idioma; después agrupa y ordena numéricamente.
+    let mut language_options: Vec<(String, &'static str)> = state.details.chapters.iter()
+        .map(|chapter| {
+            let key = chapter_language_key(chapter).to_owned();
+            (key.clone(), crate::language::label_for_key(&key))
+        })
+        .collect();
+    language_options.sort_by(|a, b| a.1.cmp(b.1));
+    language_options.dedup_by(|a, b| a.0 == b.0);
+    let filtered_chapters: Vec<Chapter> = state.details.chapters.iter()
+        .filter(|chapter| state.details.language_filter.as_deref()
+            .map(|filter| chapter_language_key(chapter) == filter)
+            .unwrap_or(true))
+        .cloned()
+        .collect();
     let chapter_groups = organize_chapters(&filtered_chapters);
     let mut chapter_rows: Vec<Element<'_, AppMessage>> = Vec::new();
     for (language, chapters) in &chapter_groups {
-        if chapter_groups.len() > 1 {
-            chapter_rows.push(
-                container(text(format!("{} ({})", language, chapters.len())).size(14).color(palette::ACCENT))
-                    .padding([8, 4])
-                    .width(Length::Fill)
-                    .into(),
-            );
-        }
+        chapter_rows.push(
+            container(text(format!("{} ({})", language, chapters.len())).size(14).color(accent))
+                .padding([8, 4])
+                .width(Length::Fill)
+                .into(),
+        );
 
         for c in chapters {
             let status_icon = if c.read {
@@ -364,32 +372,37 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 ].spacing(2).width(Length::Fill).into(),
                 None => text(chapter_label(c)).size(14).color(palette::TEXT).width(Length::Fill).into(),
             };
-            chapter_rows.push(row![
-                title,
-                button(status_icon)
-                    .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
-                    .style(crate::theme::link_button)
-                    .padding(4),
-                button(text("Ver").size(13).color(palette::TEXT_MUTED))
-                    .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
-                    .style(crate::theme::link_button)
-                    .padding(4),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center)
-            .into());
+            chapter_rows.push(
+                container(row![
+                    title,
+                    button(status_icon)
+                        .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
+                        .style(crate::theme::link_button)
+                        .padding(4),
+                    button(text("Ver").size(13).color(palette::TEXT_MUTED))
+                        .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+                        .style(crate::theme::link_button)
+                        .padding(4),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center))
+                .style(crate::theme::card_container)
+                .padding([5, 8])
+                .width(Length::Fill)
+                .into(),
+            );
         }
     }
 
-    let chapters_header = row![
-        text(format!("Capítulos ({})", filtered_chapters.len()))
+    let chapters_header = container(row![
+        text(format!("Capítulos ({}/{})", filtered_chapters.len(), state.details.chapters.len()))
             .size(18)
             .color(palette::TEXT),
         iced::widget::horizontal_space(),
         button(
             row![
-                icon::glyph(icon::DOWNLOAD, 16, palette::ACCENT),
-                text("Descargar Todo").size(13).color(palette::ACCENT),
+                icon::glyph(icon::DOWNLOAD, 16, accent),
+                text("Descargar Todo").size(13).color(accent),
             ]
             .spacing(6)
             .align_y(iced::Alignment::Center),
@@ -398,23 +411,49 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .style(crate::theme::link_button_accent)
         .padding(4),
     ]
-    .align_y(iced::Alignment::Center);
+    .align_y(iced::Alignment::Center))
+    .style(crate::theme::card_container)
+    .padding([10, 12])
+    .width(Length::Fill);
 
-    let mut content = column![back, header_row].spacing(16);
-    if let Some(lang_bar) = lang_filter_bar {
-        content = content.push(lang_bar);
-    }
-    content = content
-        .push(chapters_header)
-        .push(
-            scrollable(Column::with_children(chapter_rows).spacing(2))
-                .style(crate::theme::thin_scrollbar)
-                .height(Length::Fill)
+    let mut language_buttons = row![button(text("Todos").size(12))
+        .on_press(AppMessage::Details(Message::SetLanguage(None)))
+        .style(if state.details.language_filter.is_none() { crate::theme::primary_button } else { crate::theme::link_button })
+        .padding([5, 9])]
+        .spacing(6)
+        .padding([4, 0])
+        .align_y(iced::Alignment::Center);
+    for (language, label) in language_options {
+        let active = state.details.language_filter.as_deref() == Some(language.as_str());
+        language_buttons = language_buttons.push(
+            button(text(label).size(12))
+                .on_press(AppMessage::Details(Message::SetLanguage(Some(language))))
+                .style(if active { crate::theme::primary_button } else { crate::theme::link_button })
+                .padding([5, 9]),
         );
+    }
 
-    content
-        .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
-        .into()
+    column![
+        back,
+        header_row,
+        container(scrollable(language_buttons)
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill)
+            .direction(scrollable::Direction::Horizontal(Default::default())))
+            .style(crate::theme::panel_container)
+            .padding([6, 8])
+            .width(Length::Fill),
+        chapters_header,
+        container(scrollable(Column::with_children(chapter_rows).spacing(4))
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill))
+            .style(crate::theme::panel_container)
+            .padding(8)
+            .width(Length::Fill),
+    ]
+    .spacing(16)
+    .width(Length::Fill)
+    .into()
 }
 
 fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
@@ -433,25 +472,22 @@ fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
 }
 
 fn language_label(chapter: &Chapter) -> &'static str {
-    let explicit = chapter.language.as_deref().unwrap_or_default();
-    let code = if explicit.is_empty() { chapter.source.rsplit('_').next().unwrap_or_default() } else { explicit };
-    let normalized = code.to_ascii_lowercase().replace('_', "-");
-    match normalized.as_str() {
-        "es" | "es-la" | "esla" => "Español",
-        "en" => "Inglés",
-        "pt" | "pt-br" | "ptbr" | "br" => "Portugués",
-        "fr" => "Francés",
-        "de" => "Alemán",
-        "it" => "Italiano",
-        "ja" | "jp" => "Japonés",
-        "ko" | "kr" => "Coreano",
-        "zh" | "zh-cn" | "zh-tw" | "cn" => "Chino",
-        "ru" => "Ruso",
-        "id" => "Indonesio",
-        "vi" => "Vietnamita",
-        "th" => "Tailandés",
-        _ => "Idioma desconocido",
+    crate::language::label_for_key(chapter_language_key(chapter))
+}
+
+fn chapter_language_key(chapter: &Chapter) -> &'static str {
+    if let Some(locale) = chapter.language.as_deref().filter(|value| !value.trim().is_empty()) {
+        let key = crate::language::key(Some(locale));
+        if key != "other" && key != "mixed" { return key; }
     }
+    // Las fuentes multilingües de Futon (especialmente MangaDex) guardan el
+    // display name del locale en branch: "English", "Español", "Українська"…
+    if let Some(branch) = chapter.branch.as_deref().filter(|value| !value.trim().is_empty()) {
+        let key = crate::language::key(Some(branch));
+        if key != "other" && key != "mixed" { return key; }
+    }
+    // Compatibilidad con parsers antiguos que incluían el locale en el ID.
+    crate::language::key(chapter.source.rsplit('_').next())
 }
 
 fn chapter_label(chapter: &Chapter) -> String {
@@ -515,5 +551,24 @@ mod tests {
         let generic = chapter(5.0, "Capítulo 5", Some("es"));
         assert_eq!(chapter_label(&generic), "Capítulo 5");
         assert!(chapter_subtitle(&generic).is_none());
+    }
+
+    #[test]
+    fn groups_futon_bcp47_locales_by_base_language() {
+        assert_eq!(language_label(&chapter(1.0, "", Some("pt-BR"))), "Portugués");
+        assert_eq!(language_label(&chapter(1.0, "", Some("es-419"))), "Español");
+        assert_eq!(language_label(&chapter(1.0, "", Some("zh-Hans"))), "Chino");
+        assert_eq!(language_label(&chapter(1.0, "", Some("sl"))), "Esloveno");
+    }
+
+    #[test]
+    fn uses_futon_multilingual_branch_when_locale_is_missing() {
+        let mut english = chapter(1.0, "First Mineral Collection", None);
+        english.branch = Some("English".into());
+        let mut ukrainian = chapter(1.0, "Перша колекція мінералів", None);
+        ukrainian.branch = Some("Українська".into());
+
+        assert_eq!(language_label(&english), "Inglés");
+        assert_eq!(language_label(&ukrainian), "Ucraniano");
     }
 }

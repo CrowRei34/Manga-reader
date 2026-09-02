@@ -2,7 +2,7 @@
 //! título, barra de búsqueda y lista de fuentes con toggle a la derecha.
 //! Las fuentes vienen del daemon (`sources.list`, poblado al arrancar).
 //! Los toggles son locales (filtran qué fuentes se ofrecen en Explorar).
-use iced::widget::{column, row, scrollable, text, text_input, toggler};
+use iced::widget::{column, container, row, scrollable, text, text_input, toggler};
 use iced::{Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -40,7 +40,20 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 }
 
 pub fn view(state: &AppState) -> Element<'_, AppMessage> {
-    let header = text("Extensiones").size(22).color(palette::TEXT);
+    let header = container(
+        row![
+            container(text(""))
+                .style(crate::theme::accent_rule)
+                .width(Length::Fixed(4.0))
+                .height(Length::Fixed(26.0)),
+            text("Extensiones").size(28).color(palette::TEXT),
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Center),
+    )
+    .style(crate::theme::panel_container)
+    .padding([14, 16])
+    .width(Length::Fill);
 
     let search = text_input("Buscar extensiones…", &state.extensions.query)
         .on_input(|q| AppMessage::Extensions(Message::QueryChanged(q)))
@@ -54,10 +67,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .filter(|s| q.is_empty() || s.name.to_lowercase().contains(&q))
         .map(|s| {
             let on = !state.extensions.disabled.contains(&s.id);
-            row![
+            container(row![
                 column![
                     text(s.name.clone()).size(15).color(palette::TEXT),
-                    text("Idioma: N/A").size(12).color(palette::TEXT_MUTED),
+                    text(format!("Idioma: {}", crate::language::label(s.language.as_deref())))
+                        .size(12).color(palette::TEXT_MUTED),
                 ]
                 .spacing(2)
                 .width(Length::Fill),
@@ -69,18 +83,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             ]
             .spacing(12)
             .align_y(iced::Alignment::Center)
+            .padding([10, 12])
+            .width(Length::Fill))
+            .style(crate::theme::card_container)
             .into()
         })
         .collect();
 
-    column![
-        header,
-        search,
-        scrollable(column(rows).spacing(2))
-            .style(crate::theme::thin_scrollbar)
-            .height(Length::Fill)
-    ]
-    .spacing(12)
-    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
-    .into()
+    column![header, search, scrollable(column(rows).spacing(8)).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill)]
+        .spacing(16)
+        .into()
 }
