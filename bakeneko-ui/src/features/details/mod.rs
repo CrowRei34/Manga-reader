@@ -121,8 +121,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         Message::ChapterSelected(c) => {
             // Pasa la lista de capítulos + índice de este capítulo al reader
             // (para navegar ‹ › entre capítulos).
-            let idx = state.details.chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
-            state.reader.chapters = state.details.chapters.clone();
+            let chapters: Vec<Chapter> = state.details.chapters.iter()
+                .filter(|chapter| state.details.language_filter.as_deref()
+                    .map(|filter| language_label(chapter) == filter)
+                    .unwrap_or(true))
+                .cloned()
+                .collect();
+            let idx = chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
+            state.reader.chapters = chapters;
             state.reader.current_chapter = idx;
             // Modo de lectura por defecto desde settings (TODO: mapear).
             Task::batch([
@@ -136,6 +142,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 .details
                 .chapters
                 .iter()
+                .filter(|chapter| state.details.language_filter.as_deref()
+                    .map(|filter| language_label(chapter) == filter)
+                    .unwrap_or(true))
                 .min_by(|a, b| a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal))
                 .cloned();
             match first {
@@ -390,20 +399,39 @@ fn language_label(chapter: &Chapter) -> &'static str {
     let explicit = chapter.language.as_deref().unwrap_or_default();
     let code = if explicit.is_empty() { chapter.source.rsplit('_').next().unwrap_or_default() } else { explicit };
     let normalized = code.to_ascii_lowercase().replace('_', "-");
-    match normalized.as_str() {
-        "es" | "es-la" | "esla" => "Español",
+    // Futon expone locales BCP-47 (por ejemplo `es-419` o `pt-BR`).
+    // Para agrupar capítulos usamos el idioma base y conservamos la región
+    // únicamente como parte de la etiqueta de origen cuando haga falta.
+    let language = normalized.split('-').next().unwrap_or(normalized.as_str());
+    match language {
+        "es" => "Español",
         "en" => "Inglés",
-        "pt" | "pt-br" | "ptbr" | "br" => "Portugués",
+        "pt" | "br" => "Portugués",
         "fr" => "Francés",
         "de" => "Alemán",
         "it" => "Italiano",
         "ja" | "jp" => "Japonés",
         "ko" | "kr" => "Coreano",
-        "zh" | "zh-cn" | "zh-tw" | "cn" => "Chino",
+        "zh" | "cn" => "Chino",
         "ru" => "Ruso",
         "id" => "Indonesio",
         "vi" => "Vietnamita",
         "th" => "Tailandés",
+        "sl" => "Esloveno",
+        "tr" => "Turco",
+        "pl" => "Polaco",
+        "nl" => "Neerlandés",
+        "ar" => "Árabe",
+        "hi" => "Hindi",
+        "ms" => "Malayo",
+        "ca" => "Catalán",
+        "ro" => "Rumano",
+        "uk" => "Ucraniano",
+        "hu" => "Húngaro",
+        "sv" => "Sueco",
+        "no" => "Noruego",
+        "da" => "Danés",
+        "fi" => "Finés",
         _ => "Idioma desconocido",
     }
 }
@@ -469,5 +497,13 @@ mod tests {
         let generic = chapter(5.0, "Capítulo 5", Some("es"));
         assert_eq!(chapter_label(&generic), "Capítulo 5");
         assert!(chapter_subtitle(&generic).is_none());
+    }
+
+    #[test]
+    fn groups_futon_bcp47_locales_by_base_language() {
+        assert_eq!(language_label(&chapter(1.0, "", Some("pt-BR"))), "Portugués");
+        assert_eq!(language_label(&chapter(1.0, "", Some("es-419"))), "Español");
+        assert_eq!(language_label(&chapter(1.0, "", Some("zh-Hans"))), "Chino");
+        assert_eq!(language_label(&chapter(1.0, "", Some("sl"))), "Esloveno");
     }
 }
