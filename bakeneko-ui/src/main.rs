@@ -1,6 +1,7 @@
 mod app;
 mod discord_presence;
 mod features;
+mod language;
 mod theme;
 mod widgets;
 
