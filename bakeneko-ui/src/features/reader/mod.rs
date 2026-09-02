@@ -648,6 +648,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
                 scrollable(container(col).center_x(Length::Fill))
                     .style(crate::theme::scrollable_style)
+                    .width(Length::Fill)
                     .on_scroll(|vp| {
                         AppMessage::Reader(Message::Scrolled(vp.relative_offset().y))
                     })

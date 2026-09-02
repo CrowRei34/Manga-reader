@@ -132,14 +132,14 @@ pub fn cover_grid<'a>(
     let rows = mangas
         .chunks(per_row.max(1))
         .map(|chunk| {
-            let mut r = iced::widget::Row::new().spacing(16);
+            let mut r = iced::widget::Row::new().spacing(16).width(Length::Fill);
             for m in chunk {
                 r = r.push(cover_card(m, covers, None, msg(m)));
             }
             r.into()
         })
         .collect::<Vec<Element<'a, AppMessage>>>();
-    iced::widget::Column::with_children(rows).spacing(16).into()
+    iced::widget::Column::with_children(rows).spacing(16).width(Length::Fill).into()
 }
 
 /// Grid para resultados federados. Muestra la fuente en cada tarjeta para
@@ -172,7 +172,7 @@ pub fn search_result_grid<'a>(
                 .size(12).color(palette::TEXT_MUTED),
         ].spacing(10).align_y(iced::Alignment::Center);
         let rows = visible.chunks(per_row.max(1)).map(|chunk| {
-            let mut row = iced::widget::Row::new().spacing(16);
+            let mut row = iced::widget::Row::new().spacing(16).width(Length::Fill);
             for manga in chunk {
                 let author = manga.authors.first().cloned().unwrap_or_default();
                 let subtitle = if author.is_empty() { language.to_owned() } else { format!("{} · {}", language, author) };
@@ -181,7 +181,7 @@ pub fn search_result_grid<'a>(
             row.into()
         }).collect::<Vec<Element<'a, AppMessage>>>();
         sections.push(heading.into());
-        sections.push(iced::widget::Column::with_children(rows).spacing(16).into());
+        sections.push(iced::widget::Column::with_children(rows).spacing(16).width(Length::Fill).into());
         if more {
             sections.push(
                 iced::widget::container(
@@ -199,7 +199,7 @@ pub fn search_result_grid<'a>(
         }
         sections.push(iced::widget::Space::new(Length::Fill, Length::Fixed(12.0)).into());
     }
-    iced::widget::Column::with_children(sections).spacing(10).into()
+    iced::widget::Column::with_children(sections).spacing(10).width(Length::Fill).into()
 }
 
 fn language_label(locale: &str) -> &'static str {

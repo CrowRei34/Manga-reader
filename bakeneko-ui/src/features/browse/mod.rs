@@ -535,6 +535,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 text("Idioma").size(12).color(palette::TEXT_MUTED),
                 scrollable(language_chips)
                     .style(crate::theme::scrollable_style)
+                    .width(Length::Fill)
                     .direction(scrollable::Direction::Horizontal(Default::default())),
             ].spacing(10).align_y(iced::Alignment::Center),
             filter,
@@ -542,7 +543,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 "Filtra por idioma o nombre. Se consultan {MAX_CONCURRENT_SEARCHES} fuentes a la vez para mantener la app fluida."
             ))
                 .size(11).color(palette::TEXT_MUTED),
-            scrollable(column(source_rows).spacing(1)).style(crate::theme::scrollable_style).height(Length::Fill),
+            scrollable(column(source_rows).spacing(1)).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill),
         ].spacing(8))
             .style(crate::theme::card_container)
             .padding(10)
@@ -686,7 +687,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .padding(40)
             .into()
     } else {
-        column![grid, footer].spacing(16).into()
+        column![grid, footer].spacing(16).width(Length::Fill).into()
     };
 
     let mut header_content = column![header].spacing(8);
@@ -739,6 +740,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         (None, None) => container(
             scrollable(body)
                 .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
                 .on_scroll(|vp| {
                     let off = vp.relative_offset();
                     AppMessage::Browse(Message::Scrolled(off.y as f32))
