@@ -92,6 +92,8 @@ impl DaemonClient {
             .current_dir(jar.parent().unwrap_or(Path::new(".")))
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
+            // El daemon no debe sobrevivir si la UI termina abruptamente.
+            .kill_on_drop(true)
             .spawn()
             .map_err(|e| DaemonError::Spawn(e.to_string()))?;
         // Drena stderr del daemon en background.
@@ -226,6 +228,20 @@ impl DaemonClient {
     /// `Message::DaemonDied` cuando éste devuelve `false`.
     pub fn is_alive(&self) -> bool {
         self.socket.lock().unwrap().is_some()
+    }
+}
+
+impl Drop for DaemonClient {
+    fn drop(&mut self) {
+        // `Drop` es síncrono, pero `start_kill` solo envía la señal y no espera;
+        // `kill_on_drop` cubre además una salida por pánico o cierre abrupto.
+        if let Some(mut child) = self.child.lock().ok().and_then(|mut guard| guard.take()) {
+            let _ = child.start_kill();
+            eprintln!("[daemon] proceso detenido al cerrar Bakeneko");
+        }
+        if let Ok(mut socket) = self.socket.lock() {
+            *socket = None;
+        }
     }
 }
 
