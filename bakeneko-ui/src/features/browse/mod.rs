@@ -424,16 +424,35 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .style(crate::theme::primary_button)
         .padding([8, 20]);
 
-    let header = row![
+    // En ventanas estrechas los filtros bajan a una segunda fila para que el
+    // campo de búsqueda conserve un ancho útil y nunca empuje el botón fuera
+    // de la ventana. En escritorio amplio se mantiene la barra compacta.
+    let heading = row![
         icon::glyph(icon::EXPLORE, 20, palette::ACCENT),
         text("Explorar").size(22).color(palette::TEXT),
-        source_button,
-        category_button,
-        search,
-        buscar_btn,
     ]
-    .spacing(12)
+    .spacing(10)
     .align_y(iced::Alignment::Center);
+    let filters: Element<'_, AppMessage> = if state.window_size.0 < 700.0 {
+        column![
+            row![source_button, category_button].spacing(8),
+            row![search, buscar_btn].spacing(8).width(Length::Fill),
+        ]
+        .spacing(8)
+        .width(Length::Fill)
+        .into()
+    } else {
+        row![source_button, category_button, search, buscar_btn]
+            .spacing(10)
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill)
+            .into()
+    };
+    let header: Element<'_, AppMessage> = if state.window_size.0 < 900.0 {
+        column![heading, filters].spacing(8).width(Length::Fill).into()
+    } else {
+        row![heading, filters].spacing(14).align_y(iced::Alignment::Center).into()
+    };
 
     let source_panel: Option<Element<'_, AppMessage>> = state.browse.source_panel_open.then(|| {
         let filter = text_input("Filtrar fuentes…", &state.browse.source_query)
@@ -515,6 +534,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             row![
                 text("Idioma").size(12).color(palette::TEXT_MUTED),
                 scrollable(language_chips)
+                    .style(crate::theme::scrollable_style)
                     .direction(scrollable::Direction::Horizontal(Default::default())),
             ].spacing(10).align_y(iced::Alignment::Center),
             filter,
@@ -522,7 +542,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 "Filtra por idioma o nombre. Se consultan {MAX_CONCURRENT_SEARCHES} fuentes a la vez para mantener la app fluida."
             ))
                 .size(11).color(palette::TEXT_MUTED),
-            scrollable(column(source_rows).spacing(1)).height(Length::Fill),
+            scrollable(column(source_rows).spacing(1)).style(crate::theme::scrollable_style).height(Length::Fill),
         ].spacing(8))
             .style(crate::theme::card_container)
             .padding(10)
@@ -694,7 +714,16 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }
 
     let has_header_status = !state.browse.search_errors.is_empty() || state.browse.loading;
-    let header_height = if has_header_status { 88.0 } else { 68.0 };
+    let compact_header = state.window_size.0 < 900.0;
+    let very_compact_header = state.window_size.0 < 700.0;
+    let header_height = match (compact_header, has_header_status) {
+        (true, true) if very_compact_header => 180.0,
+        (true, false) if very_compact_header => 156.0,
+        (true, true) => 132.0,
+        (true, false) => 108.0,
+        (false, true) => 88.0,
+        (false, false) => 68.0,
+    };
     let header_container = container(header_content)
         .style(crate::theme::content_container)
         .padding(iced::Padding { top: 20.0, bottom: 8.0, left: 0.0, right: 0.0 })
@@ -709,6 +738,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         (Some(panel), _) | (_, Some(panel)) => panel,
         (None, None) => container(
             scrollable(body)
+                .style(crate::theme::scrollable_style)
                 .on_scroll(|vp| {
                     let off = vp.relative_offset();
                     AppMessage::Browse(Message::Scrolled(off.y as f32))

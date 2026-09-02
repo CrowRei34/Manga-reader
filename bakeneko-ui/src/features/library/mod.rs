@@ -172,7 +172,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     column![
         header,
-        container(scrollable(grid).height(Length::Fill)).clip(true).height(Length::Fill)
+        container(scrollable(grid).style(crate::theme::scrollable_style).height(Length::Fill)).clip(true).height(Length::Fill)
     ]
     .spacing(8)
     .into()

@@ -95,6 +95,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let recent_row = scrollable(
         Row::with_children(recent_cards).spacing(16),
     )
+    .style(crate::theme::scrollable_style)
     .direction(scrollable::Direction::Horizontal(Default::default()));
 
     // Añadidos recientemente: grid responsivo de la biblioteca.
@@ -114,5 +115,5 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     ]
     .spacing(16);
 
-    scrollable(body).height(Length::Fill).into()
+    scrollable(body).style(crate::theme::scrollable_style).height(Length::Fill).into()
 }

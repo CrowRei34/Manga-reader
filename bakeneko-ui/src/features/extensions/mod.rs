@@ -73,7 +73,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         })
         .collect();
 
-    column![header, search, scrollable(column(rows).spacing(2)).height(Length::Fill)]
+    column![header, search, scrollable(column(rows).spacing(2)).style(crate::theme::scrollable_style).height(Length::Fill)]
         .spacing(12)
         .into()
 }

@@ -252,6 +252,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .size(13)
                 .color(palette::TEXT_MUTED),
         )
+        .style(crate::theme::scrollable_style)
         .height(Length::Fixed(140.0)),
     ]
     .spacing(8);
@@ -377,9 +378,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     column![
         back,
         header_row,
-        scrollable(language_buttons).direction(scrollable::Direction::Horizontal(Default::default())),
+        scrollable(language_buttons)
+            .style(crate::theme::scrollable_style)
+            .direction(scrollable::Direction::Horizontal(Default::default())),
         chapters_header,
-        scrollable(Column::with_children(chapter_rows).spacing(2)),
+        scrollable(Column::with_children(chapter_rows).spacing(2)).style(crate::theme::scrollable_style),
     ]
     .spacing(16)
     .into()

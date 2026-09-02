@@ -219,5 +219,5 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }))
     .spacing(4);
 
-    column![header, scrollable(rows)].spacing(12).into()
+    column![header, scrollable(rows).style(crate::theme::scrollable_style)].spacing(12).into()
 }

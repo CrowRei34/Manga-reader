@@ -6,7 +6,7 @@
 //! superior), inputs (text_input, pick_list), toggler y reglas de color
 //! de texto.
 use iced::border::Radius;
-use iced::widget::{button, container, pick_list, text_input, toggler};
+use iced::widget::{button, container, pick_list, scrollable, text_input, toggler};
 use iced::{Border, Color, Theme};
 
 use bakeneko_core::settings::Settings;
@@ -307,6 +307,41 @@ pub fn divider(_theme: &Theme) -> container::Style {
     container::Style {
         background: Some(palette::BORDER.into()),
         ..Default::default()
+    }
+}
+
+/// Barra de desplazamiento común: discreta en reposo, visible al interactuar
+/// y con el mismo lenguaje visual sepia que el resto de la aplicación.
+pub fn scrollable_style(_theme: &Theme, status: scrollable::Status) -> scrollable::Style {
+    let active = matches!(
+        status,
+        scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. }
+    );
+    let rail = scrollable::Rail {
+        background: Some(Color { a: 0.24, ..palette::SIDEBAR }.into()),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(5.0),
+        },
+        scroller: scrollable::Scroller {
+            color: if active {
+                Color { a: 0.92, ..palette::ACCENT }
+            } else {
+                Color { a: 0.58, ..palette::TEXT_DIM }
+            },
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: radius(5.0),
+            },
+        },
+    };
+    scrollable::Style {
+        container: container::Style::default(),
+        vertical_rail: rail,
+        horizontal_rail: rail,
+        gap: Some(Color { a: 0.0, ..palette::BG }.into()),
     }
 }
 
