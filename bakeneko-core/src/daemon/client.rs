@@ -87,9 +87,28 @@ impl DaemonClient {
         // Nota: no borramos un socket previo; el daemon real (java) lo sobreescribe al
         // bindear y borrar aquí rompería un listener vivo (p. ej. el fake server del test).
 
-        let mut child = Command::new(&java)
-            .arg("-jar").arg(&jar)
-            .current_dir(jar.parent().unwrap_or(Path::new(".")))
+        let mut cmd = Command::new(&java);
+        cmd.arg("-Xmx128m")
+            .arg("-XX:+UseSerialGC")
+            .arg("-jar")
+            .arg(&jar)
+            .current_dir(jar.parent().unwrap_or(Path::new(".")));
+
+        if let Ok(exec) = std::env::current_exe() {
+            let jre = exec.parent().unwrap().join("jre/bin/java");
+            if java == jre.to_string_lossy() {
+                let jre_lib = exec.parent().unwrap().join("jre/lib");
+                let ld_path = format!(
+                    "{}/server:{}/{}",
+                    jre_lib.display(),
+                    jre_lib.display(),
+                    std::env::var("LD_LIBRARY_PATH").unwrap_or_default()
+                );
+                cmd.env("LD_LIBRARY_PATH", ld_path);
+            }
+        }
+
+        let mut child = cmd
             .stdout(Stdio::null())
             .stderr(Stdio::piped())
             // El daemon no debe sobrevivir si la UI termina abruptamente.

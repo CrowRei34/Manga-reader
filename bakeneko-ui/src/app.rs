@@ -41,8 +41,10 @@ pub struct AppState {
     pub downloads_state: downloads::State,
     /// Estado de extensiones (query + toggles).
     pub extensions: extensions::State,
-    /// Portadas cacheadas: `cover_url` → path en disco (vía `ImageCache`).
-    pub covers: std::collections::HashMap<String, std::path::PathBuf>,
+    /// Portadas cacheadas: `cover_url` → handle de iced (o None si falló).
+    pub covers: std::collections::HashMap<String, Option<iced::widget::image::Handle>>,
+    /// Versión del cache de portadas, incrementada con cada cambio (para invalidar `lazy` widgets)
+    pub covers_version: usize,
     /// Headers HTTP para bajar portadas (Referer etc.). Por ahora vacío;
     /// se puede poblar con `source_headers` por fuente si hace falta.
     pub cover_headers: std::collections::HashMap<String, String>,
@@ -73,6 +75,7 @@ impl Default for AppState {
             downloads_state: downloads::State::default(),
             extensions: extensions::State::default(),
             covers: std::collections::HashMap::new(),
+            covers_version: 0,
             cover_headers: std::collections::HashMap::new(),
             window_size: (1280.0, 800.0),
         }
@@ -105,8 +108,8 @@ pub enum Message {
     Download(downloads::Message),
     Settings(settings::Message),
     Extensions(extensions::Message),
-    /// Resultado de la descarga de una portada (`cover_url` → path en disco).
-    CoverLoaded(String, Option<std::path::PathBuf>),
+    /// Resultado de la descarga de una portada (`cover_url` → handle de iced).
+    CoverLoaded(String, Option<iced::widget::image::Handle>),
     /// Resize de la ventana (para recalcular `per_row` de los grids).
     WindowResized(f32, f32),
 }
@@ -249,9 +252,17 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Download(m) => downloads::update(state, m),
         Message::Settings(m) => settings::update(state, m),
         Message::Extensions(m) => extensions::update(state, m),
-        Message::CoverLoaded(url, path) => {
-            if let Some(p) = path {
-                state.covers.insert(url, p);
+        Message::CoverLoaded(url, handle) => {
+            if let Some(h) = handle {
+                state.covers.insert(url, Some(h));
+                // Cap de portadas en memoria (LRU): mantener hasta 1000 portadas activas
+                if state.covers.len() > 1000 {
+                    let keys_to_remove: Vec<String> = state.covers.keys().take(state.covers.len() - 1000).cloned().collect();
+                    for k in keys_to_remove {
+                        state.covers.remove(&k);
+                    }
+                }
+                state.covers_version += 1;
             }
             Task::none()
         }

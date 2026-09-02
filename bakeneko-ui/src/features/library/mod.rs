@@ -161,7 +161,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         column![crate::widgets::cover::cover_grid(
             &filtered,
             &state.covers,
-            crate::widgets::cover::per_row_for(state.window_size.0),
+            state.window_size.0,
             crate::widgets::cover::details_msg,
         )]
     };
@@ -172,8 +172,15 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     column![
         header,
-        container(scrollable(grid).height(Length::Fill)).clip(true).height(Length::Fill)
+        container(
+            scrollable(grid)
+                .style(crate::theme::thin_scrollbar)
+                .height(Length::Fill)
+        )
+        .clip(true)
+        .height(Length::Fill)
     ]
     .spacing(8)
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
     .into()
 }

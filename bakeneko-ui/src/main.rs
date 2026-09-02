@@ -1,3 +1,6 @@
+#[global_allocator]
+static GLOBAL: mimalloc::MiMalloc = mimalloc::MiMalloc;
+
 mod app;
 mod discord_presence;
 mod features;
@@ -16,24 +19,43 @@ use bakeneko_core::settings;
 use bakeneko_core::xdg::Xdg;
 
 fn load_font() -> std::borrow::Cow<'static, [u8]> {
-    let mut path = bakeneko_core::xdg::Xdg::data_root().join("assets/MaterialIcons.ttf");
-    if !path.exists() {
-        if let Ok(exe) = std::env::current_exe() {
-            if let Some(dir) = exe.parent() {
-                path = dir.join("assets/MaterialIcons.ttf");
+    let mut candidates = vec![
+        bakeneko_core::xdg::Xdg::data_root().join("assets/MaterialIcons.ttf"),
+    ];
+    if let Ok(exe) = std::env::current_exe() {
+        if let Some(dir) = exe.parent() {
+            candidates.push(dir.join("assets/MaterialIcons.ttf"));
+            let mut cur = dir.to_path_buf();
+            for _ in 0..8 {
+                candidates.push(cur.join("assets/MaterialIcons.ttf"));
+                candidates.push(cur.join("bakeneko-ui/assets/MaterialIcons.ttf"));
+                if let Some(p) = cur.parent() {
+                    cur = p.to_path_buf();
+                } else {
+                    break;
+                }
             }
         }
     }
-    if !path.exists() {
-        path = std::env::current_dir().unwrap_or_default().join("assets/MaterialIcons.ttf");
-    }
-    match std::fs::read(&path) {
-        Ok(bytes) => bytes.into(),
-        Err(e) => {
-            eprintln!("WARN: no se pudo cargar fuente {:?}: {}", path, e);
-            vec![].into()
+    if let Ok(cwd) = std::env::current_dir() {
+        let mut cur = cwd;
+        for _ in 0..8 {
+            candidates.push(cur.join("assets/MaterialIcons.ttf"));
+            candidates.push(cur.join("bakeneko-ui/assets/MaterialIcons.ttf"));
+            if let Some(p) = cur.parent() {
+                cur = p.to_path_buf();
+            } else {
+                break;
+            }
         }
     }
+    for path in candidates {
+        if let Ok(bytes) = std::fs::read(&path) {
+            return bytes.into();
+        }
+    }
+    eprintln!("WARN: no se pudo cargar fuente MaterialIcons.ttf");
+    vec![].into()
 }
 
 /// Binario bakeneko. iced 0.13 cambió `Application` (trait, estilo 0.12) por

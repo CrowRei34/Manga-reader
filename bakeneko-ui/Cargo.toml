@@ -13,6 +13,7 @@ anyhow = "1"
 rusqlite = { version = "0.31", features = ["bundled"] }
 async-trait = "0.1"
 discord-rich-presence = "1.1"
+mimalloc = { version = "0.1", default-features = false }
 
 
 [dev-dependencies]

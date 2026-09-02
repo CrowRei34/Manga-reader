@@ -177,6 +177,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding([6, 14]),
         ]
         .spacing(12)
+        .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
         .into();
     }
 
@@ -219,5 +220,13 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }))
     .spacing(4);
 
-    column![header, scrollable(rows)].spacing(12).into()
+    column![
+        header,
+        scrollable(rows)
+            .style(crate::theme::thin_scrollbar)
+            .height(Length::Fill)
+    ]
+    .spacing(12)
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
+    .into()
 }

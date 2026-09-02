@@ -160,10 +160,15 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     .padding(iced::Padding::new(16.0))
     .width(Length::Fill);
 
-    column![
+    let body = column![
         text("Ajustes").size(22).color(palette::TEXT),
         row![subnav, panel].spacing(24),
     ]
     .spacing(16)
-    .into()
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 });
+
+    iced::widget::scrollable(body)
+        .style(crate::theme::thin_scrollbar)
+        .height(Length::Fill)
+        .into()
 }

@@ -521,7 +521,9 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 "Filtra por idioma o nombre. Se consultan {MAX_CONCURRENT_SEARCHES} fuentes a la vez para mantener la app fluida."
             ))
                 .size(11).color(palette::TEXT_MUTED),
-            scrollable(column(source_rows).spacing(1)).height(Length::Fill),
+            scrollable(column(source_rows).spacing(1))
+                .style(crate::theme::thin_scrollbar)
+                .height(Length::Fill),
         ].spacing(8))
             .style(crate::theme::card_container)
             .padding(10)
@@ -612,7 +614,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let grid = crate::widgets::cover::search_result_grid(
         &visible_mangas,
         &state.covers,
-        crate::widgets::cover::per_row_for(state.window_size.0),
+        state.window_size.0,
         &state.sources,
         state.browse.group_results,
         &state.browse.visible_per_source,
@@ -712,6 +714,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                     let off = vp.relative_offset();
                     AppMessage::Browse(Message::Scrolled(off.y as f32))
                 })
+                .style(crate::theme::thin_scrollbar)
                 .height(Length::Fill)
         )
         .clip(true)

@@ -95,13 +95,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let recent_row = scrollable(
         Row::with_children(recent_cards).spacing(16),
     )
-    .direction(scrollable::Direction::Horizontal(Default::default()));
+    .direction(scrollable::Direction::Horizontal(Default::default()))
+    .style(crate::theme::thin_scrollbar);
 
     // Añadidos recientemente: grid responsivo de la biblioteca.
     let grid = crate::widgets::cover::cover_grid(
         &state.library,
         &state.covers,
-        crate::widgets::cover::per_row_for(state.window_size.0),
+        state.window_size.0,
         crate::widgets::cover::details_msg,
     );
 
@@ -112,7 +113,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         section_header("Añadidos recientemente"),
         grid,
     ]
-    .spacing(16);
+    .spacing(16)
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 });
 
-    scrollable(body).height(Length::Fill).into()
+    scrollable(body)
+        .style(crate::theme::thin_scrollbar)
+        .height(Length::Fill)
+        .into()
 }

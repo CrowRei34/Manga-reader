@@ -25,6 +25,24 @@ fn row_to_manga(row: &Row) -> rusqlite::Result<Manga> {
             ..StoredMetadata::default()
         }
     });
+    let mut cover_url: Option<String> = row.get(4)?;
+    let mut large_cover_url = metadata.large_cover_url;
+    if cover_url.is_none() || cover_url.as_deref() == Some("") {
+        cover_url = metadata.blob
+            .get("coverUrl")
+            .and_then(|v| v.as_str())
+            .map(|s| s.to_string())
+            .or_else(|| {
+                metadata.blob.get("largeCoverUrl")
+                    .and_then(|v| v.as_str())
+                    .map(|s| s.to_string())
+            });
+    }
+    if large_cover_url.is_none() {
+        if let Some(lcu) = metadata.blob.get("largeCoverUrl").and_then(|v| v.as_str()) {
+            large_cover_url = Some(lcu.to_string());
+        }
+    }
     Ok(Manga {
         source: row.get(1)?,
         url: row.get(2)?,
@@ -32,8 +50,8 @@ fn row_to_manga(row: &Row) -> rusqlite::Result<Manga> {
         public_url: metadata.public_url,
         rating: metadata.rating,
         is_nsfw: metadata.is_nsfw,
-        cover_url: row.get(4)?,
-        large_cover_url: metadata.large_cover_url,
+        cover_url,
+        large_cover_url,
         description: row.get(5)?,
         authors: metadata.authors,
         state: metadata.state,
@@ -43,6 +61,7 @@ fn row_to_manga(row: &Row) -> rusqlite::Result<Manga> {
 }
 
 pub fn upsert(conn: &Connection, m: &Manga, added_at: i64) -> Result<i64, DbError> {
+    let cover = m.cover_url.as_ref().or(m.large_cover_url.as_ref());
     let metadata = serde_json::to_string(&StoredMetadata {
         public_url: m.public_url.clone(),
         rating: m.rating,
@@ -57,10 +76,10 @@ pub fn upsert(conn: &Connection, m: &Manga, added_at: i64) -> Result<i64, DbErro
          VALUES (?1,?2,?3,?4,?5,?6,?7,0)
          ON CONFLICT(source, url) DO UPDATE SET
             title=excluded.title,
-            cover_url=excluded.cover_url,
-            description=excluded.description,
+            cover_url=COALESCE(excluded.cover_url, manga.cover_url),
+            description=COALESCE(excluded.description, manga.description),
             blob_json=excluded.blob_json",
-        params![m.source, m.url, m.title, m.cover_url, m.description, metadata, added_at],
+        params![m.source, m.url, m.title, cover, m.description, metadata, added_at],
     )?;
     let id: i64 = conn.query_row(
         "SELECT id FROM manga WHERE source=?1 AND url=?2",
@@ -68,6 +87,17 @@ pub fn upsert(conn: &Connection, m: &Manga, added_at: i64) -> Result<i64, DbErro
         |r| r.get(0),
     )?;
     Ok(id)
+}
+
+pub fn is_in_library(conn: &Connection, source: &str, url: &str) -> Result<bool, DbError> {
+    let mut stmt = conn.prepare("SELECT library FROM manga WHERE source=?1 AND url=?2")?;
+    let mut rows = stmt.query(params![source, url])?;
+    if let Some(row) = rows.next()? {
+        let in_lib: i32 = row.get(0)?;
+        Ok(in_lib == 1)
+    } else {
+        Ok(false)
+    }
 }
 
 /// Búsqueda por (source, url); usada por `dao_test` y flujos futuros.

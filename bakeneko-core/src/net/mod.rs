@@ -28,7 +28,11 @@ impl ImageCache {
     pub fn new() -> Self {
         Self {
             root: Xdg::cache_root(),
-            client: reqwest::Client::builder().user_agent("bakeneko-rs/0.1").build().unwrap(),
+            client: reqwest::Client::builder()
+                .user_agent("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36")
+                .timeout(std::time::Duration::from_secs(20))
+                .build()
+                .unwrap(),
             inflight: Mutex::new(HashMap::new()),
             download_slots: Semaphore::new(6),
         }
@@ -63,62 +67,102 @@ impl ImageCache {
     }
 
     pub fn cached_path(&self, url: &str) -> PathBuf {
-        let stem = Self::stem(url);
-        // Cache hit con cualquier extensión conocida.
-        for ext in ["jpg", "png", "webp", "gif"] {
-            let p = self.root.join(format!("{stem}.{ext}"));
-            if p.exists() {
-                return p;
+        let clean_url = if url.starts_with("//") {
+            format!("https:{url}")
+        } else {
+            url.to_string()
+        };
+        let stem = Self::stem(&clean_url);
+        let ext = Self::url_ext(&clean_url).unwrap_or("jpg");
+        let direct_path = self.root.join(format!("{stem}.{ext}"));
+        if direct_path.exists() {
+            return direct_path;
+        }
+        // Fallback si fue guardado con otra extensión tras sniffing
+        for known_ext in ["jpg", "png", "webp", "gif"] {
+            if known_ext != ext {
+                let p = self.root.join(format!("{stem}.{known_ext}"));
+                if p.exists() {
+                    return p;
+                }
             }
         }
-        // Todavía no existe: hint de la URL o .jpg.
-        let ext = Self::url_ext(url).unwrap_or("jpg");
-        self.root.join(format!("{stem}.{ext}"))
+        direct_path
     }
 
     pub async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<PathBuf, NetError> {
-        let path = self.cached_path(url);
+        let normalized_url = if url.starts_with("//") {
+            format!("https:{url}")
+        } else {
+            url.to_string()
+        };
+        let path = self.cached_path(&normalized_url);
         if path.exists() {
             return Ok(path);
         }
         let url_lock = {
             let mut inflight = self.inflight.lock().await;
-            inflight.entry(url.to_owned()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
+            inflight.entry(normalized_url.clone()).or_insert_with(|| Arc::new(Mutex::new(()))).clone()
         };
         let _url_guard = url_lock.lock().await;
-        let path = self.cached_path(url);
+        let path = self.cached_path(&normalized_url);
         if path.exists() {
             return Ok(path);
         }
         let _slot = self.download_slots.acquire().await.expect("semaphore de portadas cerrado");
-        let mut req = self.client.get(url);
+        let mut req = self.client.get(&normalized_url)
+            .header("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8");
         for (k, v) in headers {
             req = req.header(k, v);
         }
-        // Fallback para Comick: requiere Referer para descargar imágenes desde su CDN.
-        if url.contains("comick") && !headers.keys().any(|k| k.eq_ignore_ascii_case("referer")) {
-            req = req.header("Referer", "https://comick.live/");
+        // Fallback para Referer si no viene especificado en headers
+        if !headers.keys().any(|k| k.eq_ignore_ascii_case("referer")) {
+            if normalized_url.contains("comick") {
+                req = req.header("Referer", "https://comick.live/");
+            } else if normalized_url.contains("mangadex") {
+                req = req.header("Referer", "https://mangadex.org/");
+            } else if let Ok(parsed) = reqwest::Url::parse(&normalized_url) {
+                if let Some(host) = parsed.host_str() {
+                    req = req.header("Referer", format!("https://{host}/"));
+                }
+            }
         }
-        let resp = req.send().await?;
+        let mut resp = req.send().await?;
         if !resp.status().is_success() {
-            return Err(NetError::Http { status: resp.status(), url: url.to_string() });
+            return Err(NetError::Http { status: resp.status(), url: normalized_url });
         }
-        let bytes = resp.bytes().await?;
         std::fs::create_dir_all(&self.root)?;
-        // Guarda con la extensión real (sniff > URL > jpg) para que iced
-        // decodifique por extensión.
-        let ext = Self::sniff_ext(&bytes)
-            .or_else(|| Self::url_ext(url))
-            .unwrap_or("jpg");
-        let final_path = self.root.join(format!("{}.{ext}", Self::stem(url)));
-        std::fs::write(&final_path, bytes)?;
+        let stem = Self::stem(&normalized_url);
+        let tmp_path = self.root.join(format!("{stem}.downloading"));
+        let mut file = tokio::fs::File::create(&tmp_path).await?;
+        
+        let mut sniff_buffer = Vec::with_capacity(32);
+        let mut ext = Self::url_ext(&normalized_url);
+        
+        use tokio::io::AsyncWriteExt;
+        while let Some(chunk) = resp.chunk().await? {
+            if sniff_buffer.len() < 32 {
+                let needed = 32 - sniff_buffer.len();
+                let take = needed.min(chunk.len());
+                sniff_buffer.extend_from_slice(&chunk[..take]);
+                if ext.is_none() {
+                    ext = Self::sniff_ext(&sniff_buffer);
+                }
+            }
+            file.write_all(&chunk).await?;
+        }
+        file.flush().await?;
+        drop(file);
+
+        let final_ext = ext.or_else(|| Self::sniff_ext(&sniff_buffer)).unwrap_or("jpg");
+        let final_path = self.root.join(format!("{stem}.{final_ext}"));
+        tokio::fs::rename(&tmp_path, &final_path).await?;
         Ok(final_path)
     }
 
     /// Descarga (o reusa de caché) la imagen de `url` y devuelve un
     /// [`iced::widget::image::Handle`] listo para pintar, o `None` si la
     /// descarga o la lectura del archivo fallan.
-    /// (Helper de render; los features usan `get` + paths por ahora.)
     #[allow(dead_code)]
     pub async fn get_handle(&self, url: &str, headers: &HashMap<String, String>) -> Option<iced::widget::image::Handle> {
         let path = self.get(url, headers).await.ok()?;

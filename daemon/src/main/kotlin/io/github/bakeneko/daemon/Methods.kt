@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import io.github.bakeneko.daemon.parsers.MangaDotNet
 import io.github.landwarderer.futon.parsers.model.MangaListFilter
 import io.github.landwarderer.futon.parsers.model.MangaParserSource
 import io.github.landwarderer.futon.parsers.model.SortOrder
@@ -27,6 +28,7 @@ import io.github.landwarderer.futon.parsers.model.SortOrder
 class Methods(private val ctx: DaemonLoaderContext) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val mangaDotNet = MangaDotNet(ctx.httpClient)
 
     /** Devuelve el JsonElement del `result`. Lanza [RpcError] en fallo. */
     suspend fun invoke(method: String, params: JsonObject?): JsonElement = when (method) {
@@ -35,41 +37,69 @@ class Methods(private val ctx: DaemonLoaderContext) {
             put("java", System.getProperty("java.version"))
         }
 
-        "sources.list" ->
-            json.encodeToJsonElement(MangaParserSource.entries.map { it.toDto() })
+        "sources.list" -> {
+            val official = MangaParserSource.entries.map { it.toDto() }
+            val allSources = listOf(MangaDotNet.SOURCE_DTO) + official
+            json.encodeToJsonElement(allSources)
+        }
 
         "catalog.list" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val offset = params.intOrDefault("offset", 0)
             val query = params?.optionalString("query")
             val categories = params?.get("categories")?.jsonArray
                 ?.mapNotNull { (it as? JsonPrimitive)?.content }
                 ?: emptyList()
-            catalog(source, offset, query, categories)
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.catalog(offset, query, categories))
+            } else {
+                val source = params.source()
+                catalog(source, offset, query, categories)
+            }
         }
 
         "manga.details" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val manga = params.reqObj("manga").decode<MangaDto>()
-            json.encodeToJsonElement(details(source, manga))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.details(manga))
+            } else {
+                val source = params.source()
+                json.encodeToJsonElement(details(source, manga))
+            }
         }
 
         "chapter.pages" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val chapter = params.reqObj("chapter").decode<ChapterDto>()
-            json.encodeToJsonElement(pages(source, chapter))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.pages(chapter))
+            } else {
+                val source = params.source()
+                json.encodeToJsonElement(pages(source, chapter))
+            }
         }
 
         "page.url" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val page = params.reqObj("page").decode<PageDto>()
-            JsonPrimitive(pages_url(source, page))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                JsonPrimitive(mangaDotNet.pageUrl(page))
+            } else {
+                val source = params.source()
+                JsonPrimitive(pages_url(source, page))
+            }
         }
 
         "source.headers" -> {
-            val source = params.source()
-            val parser = ctx.newParserInstance(source)
-            val headers = parser.getRequestHeaders()
+            val sourceId = params.sourceId()
+            val headers = if (sourceId == MangaDotNet.SOURCE_ID) {
+                mangaDotNet.getRequestHeaders()
+            } else {
+                val source = params.source()
+                val parser = getParser(source)
+                parser.getRequestHeaders()
+            }
             buildJsonObject {
                 for (i in 0 until headers.size) {
                     put(headers.name(i), headers.value(i))
@@ -78,6 +108,10 @@ class Methods(private val ctx: DaemonLoaderContext) {
         }
 
         else -> throw RpcError(-32601, "método desconocido: $method")
+    }
+
+    private fun JsonObject?.sourceId(): String {
+        return this?.optionalString("source") ?: throw RpcError(-32602, "falta source")
     }
 
     private fun JsonObject?.source(): MangaParserSource {
@@ -105,11 +139,26 @@ class Methods(private val ctx: DaemonLoaderContext) {
         throw RpcError(-32602, "params inválidos: ${e.message}")
     }
 
+    private val parserCache = java.util.concurrent.ConcurrentHashMap<MangaParserSource, io.github.landwarderer.futon.parsers.MangaParser>()
+
+    private fun getParser(source: MangaParserSource, reset: Boolean = false): io.github.landwarderer.futon.parsers.MangaParser {
+        if (reset) {
+            val p = ctx.newParserInstance(source)
+            parserCache[source] = p
+            return p
+        }
+        return parserCache.computeIfAbsent(source) { ctx.newParserInstance(it) }
+    }
+
     private suspend fun catalog(
         source: MangaParserSource, offset: Int, query: String?, categories: List<String>,
     ): JsonElement {
-        val parser = ctx.newParserInstance(source)
-        val order = parser.availableSortOrders.firstOrNull() ?: SortOrder.UPDATED
+        val parser = getParser(source, reset = (offset == 0))
+        val order = if (parser.availableSortOrders.contains(SortOrder.POPULARITY)) {
+            SortOrder.POPULARITY
+        } else {
+            parser.availableSortOrders.firstOrNull() ?: SortOrder.UPDATED
+        }
         val requested = categories.flatMap(::categoryAliases).map { it.lowercase() }.toSet()
         val tags = if (requested.isEmpty()) {
             emptySet()
@@ -151,19 +200,19 @@ class Methods(private val ctx: DaemonLoaderContext) {
     }
 
     private suspend fun details(source: MangaParserSource, mangaDto: MangaDto): MangaDto {
-        val parser = ctx.newParserInstance(source)
+        val parser = getParser(source)
         val detailed = parser.getDetails(mangaDto.toModel())
         return detailed.toDto()
     }
 
     private suspend fun pages(source: MangaParserSource, chapterDto: ChapterDto): List<PageDto> {
-        val parser = ctx.newParserInstance(source)
+        val parser = getParser(source)
         val list = parser.getPages(chapterDto.toModel())
         return list.map { it.toDto() }
     }
 
     private suspend fun pages_url(source: MangaParserSource, pageDto: PageDto): String {
-        val parser = ctx.newParserInstance(source)
+        val parser = getParser(source)
         return parser.getPageUrl(pageDto.toModel())
     }
 }

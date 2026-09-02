@@ -26,9 +26,13 @@ pub const BOOKMARK: char = '\u{e866}';
 pub const CLOSE: char = '\u{e5cd}';
 pub const PAUSE: char = '\u{e034}';
 pub const CHECK: char = '\u{e5ca}';
+#[allow(dead_code)]
+pub const FILTER: char = '\u{e152}';
 pub const ERROR: char = '\u{e001}';          // error_outline (círculo con !)
 pub const DOWNLOAD_FOR_OFFLINE: char = '\u{e171}';
 pub const IMAGE: char = '\u{e3f4}';          // image (placeholder de portada)
+#[allow(dead_code)]
+pub const EXPAND_MORE: char = '\u{e5cf}';
 
 /// Texto de ícono con tamaño y color. El caller encadena `.into()`.
 pub fn glyph(code: char, size: u16, color: Color) -> text::Text<'static> {

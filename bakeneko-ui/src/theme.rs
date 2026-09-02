@@ -64,7 +64,16 @@ pub fn iced_theme(_settings: &Settings) -> Theme {
     palette.primary = palette::ACCENT;
     palette.success = palette::SUCCESS;
     palette.danger = palette::DANGER;
-    Theme::custom("bakeneko".to_string(), palette)
+    Theme::custom_with_fn("bakeneko".to_string(), palette, |p| {
+        let mut ext = iced::theme::palette::Extended::generate(p);
+        ext.background.base.color = palette::BG;
+        ext.background.weak.color = palette::BORDER;
+        ext.background.strong.color = palette::ACCENT;
+        ext.primary.base.color = palette::ACCENT;
+        ext.primary.weak.color = palette::ACCENT_TINT;
+        ext.primary.strong.color = palette::ACCENT_HOVER;
+        ext
+    })
 }
 
 /// Radio de borde estándar (botones, inputs, cards).
@@ -388,5 +397,114 @@ fn is_on(status: &toggler::Status) -> bool {
         toggler::Status::Active { is_toggled } => *is_toggled,
         toggler::Status::Hovered { is_toggled } => *is_toggled,
         toggler::Status::Disabled => false,
+    }
+}
+
+/// Botón estilo selector dropdown (para abrir el buscador de proveedor).
+#[allow(dead_code)]
+pub fn dropdown_button(_theme: &Theme, status: button::Status) -> button::Style {
+    button::Style {
+        background: match status {
+            button::Status::Hovered | button::Status::Pressed => Some(palette::HOVER.into()),
+            _ => Some(palette::INPUT.into()),
+        },
+        text_color: palette::TEXT,
+        border: Border {
+            color: match status {
+                button::Status::Hovered | button::Status::Pressed => palette::ACCENT,
+                _ => palette::BORDER,
+            },
+            width: 1.0,
+            radius: radius(8.0),
+        },
+        ..Default::default()
+    }
+}
+
+#[allow(dead_code)]
+pub fn list_item_button(is_active: bool) -> impl Fn(&Theme, button::Status) -> button::Style {
+    move |_theme, status| {
+        let base_bg = if is_active {
+            Some(palette::ACCENT_TINT.into())
+        } else {
+            None
+        };
+        button::Style {
+            background: match status {
+                button::Status::Hovered | button::Status::Pressed => Some(palette::HOVER.into()),
+                _ => base_bg,
+            },
+            text_color: if is_active {
+                palette::ACCENT
+            } else {
+                palette::TEXT
+            },
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: radius(6.0),
+            },
+            ..Default::default()
+        }
+    }
+}
+
+#[allow(dead_code)]
+pub fn modal_backdrop(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(Color { r: 0.0, g: 0.0, b: 0.0, a: 0.7 }.into()),
+        ..Default::default()
+    }
+}
+
+#[allow(dead_code)]
+pub fn modal_container(_theme: &Theme) -> container::Style {
+    container::Style {
+        background: Some(palette::ELEVATED.into()),
+        text_color: Some(palette::TEXT),
+        border: Border {
+            color: palette::BORDER,
+            width: 1.0,
+            radius: radius(12.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Scrollbar fina y moderna integrada con la paleta.
+pub fn thin_scrollbar(_theme: &Theme, status: iced::widget::scrollable::Status) -> iced::widget::scrollable::Style {
+    use iced::widget::scrollable;
+    let is_hovered = matches!(status, scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. });
+    let bar_color = if is_hovered {
+        palette::ACCENT
+    } else {
+        Color { a: 0.4, ..palette::BORDER }
+    };
+
+    scrollable::Style {
+        container: container::Style::default(),
+        vertical_rail: scrollable::Rail {
+            background: None,
+            border: Border::default(),
+            scroller: scrollable::Scroller {
+                color: bar_color,
+                border: Border {
+                    radius: radius(4.0),
+                    ..Border::default()
+                },
+            },
+        },
+        horizontal_rail: scrollable::Rail {
+            background: None,
+            border: Border::default(),
+            scroller: scrollable::Scroller {
+                color: bar_color,
+                border: Border {
+                    radius: radius(4.0),
+                    ..Border::default()
+                },
+            },
+        },
+        gap: None,
     }
 }
