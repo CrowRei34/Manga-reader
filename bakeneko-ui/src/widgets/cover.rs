@@ -8,7 +8,7 @@
 use std::collections::{HashMap, HashSet};
 use std::path::PathBuf;
 
-use iced::widget::{button, column, container, image, text};
+use iced::widget::{button, column, container, image, text, Space};
 use iced::{ContentFit, Element, Length, Task};
 
 use crate::app::{AppState, Message as AppMessage};
@@ -133,8 +133,14 @@ pub fn cover_grid<'a>(
         .chunks(per_row.max(1))
         .map(|chunk| {
             let mut r = iced::widget::Row::new().spacing(16).width(Length::Fill);
-            for m in chunk {
+            for (index, m) in chunk.iter().enumerate() {
+                if chunk.len() == 1 || index > 0 {
+                    r = r.push(Space::new(Length::Fill, Length::Shrink));
+                }
                 r = r.push(cover_card(m, covers, None, msg(m)));
+            }
+            if chunk.len() == 1 {
+                r = r.push(Space::new(Length::Fill, Length::Shrink));
             }
             r.into()
         })
@@ -173,10 +179,16 @@ pub fn search_result_grid<'a>(
         ].spacing(10).align_y(iced::Alignment::Center);
         let rows = visible.chunks(per_row.max(1)).map(|chunk| {
             let mut row = iced::widget::Row::new().spacing(16).width(Length::Fill);
-            for manga in chunk {
+            for (index, manga) in chunk.iter().enumerate() {
+                if chunk.len() == 1 || index > 0 {
+                    row = row.push(Space::new(Length::Fill, Length::Shrink));
+                }
                 let author = manga.authors.first().cloned().unwrap_or_default();
                 let subtitle = if author.is_empty() { language.to_owned() } else { format!("{} · {}", language, author) };
                 row = row.push(cover_card(manga, covers, Some(subtitle), details_msg(manga)));
+            }
+            if chunk.len() == 1 {
+                row = row.push(Space::new(Length::Fill, Length::Shrink));
             }
             row.into()
         }).collect::<Vec<Element<'a, AppMessage>>>();
