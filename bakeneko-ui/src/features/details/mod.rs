@@ -406,7 +406,14 @@ fn language_label(chapter: &Chapter) -> &'static str {
 
 fn chapter_language_key(chapter: &Chapter) -> &'static str {
     if let Some(locale) = chapter.language.as_deref().filter(|value| !value.trim().is_empty()) {
-        return crate::language::key(Some(locale));
+        let key = crate::language::key(Some(locale));
+        if key != "other" && key != "mixed" { return key; }
+    }
+    // Las fuentes multilingües de Futon (especialmente MangaDex) guardan el
+    // display name del locale en branch: "English", "Español", "Українська"…
+    if let Some(branch) = chapter.branch.as_deref().filter(|value| !value.trim().is_empty()) {
+        let key = crate::language::key(Some(branch));
+        if key != "other" && key != "mixed" { return key; }
     }
     // Compatibilidad con parsers antiguos que incluían el locale en el ID.
     crate::language::key(chapter.source.rsplit('_').next())
@@ -481,5 +488,16 @@ mod tests {
         assert_eq!(language_label(&chapter(1.0, "", Some("es-419"))), "Español");
         assert_eq!(language_label(&chapter(1.0, "", Some("zh-Hans"))), "Chino");
         assert_eq!(language_label(&chapter(1.0, "", Some("sl"))), "Esloveno");
+    }
+
+    #[test]
+    fn uses_futon_multilingual_branch_when_locale_is_missing() {
+        let mut english = chapter(1.0, "First Mineral Collection", None);
+        english.branch = Some("English".into());
+        let mut ukrainian = chapter(1.0, "Перша колекція мінералів", None);
+        ukrainian.branch = Some("Українська".into());
+
+        assert_eq!(language_label(&english), "Inglés");
+        assert_eq!(language_label(&ukrainian), "Ucraniano");
     }
 }

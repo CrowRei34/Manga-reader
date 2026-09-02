@@ -90,7 +90,10 @@ internal fun MangaChapter.toDto(): ChapterDto = ChapterDto(
     title = title ?: "",
     number = number,
     volume = volume,
-    language = (source as? MangaParserSource)?.locale,
+    // Las fuentes monolingües exponen source.locale. MangaDex deja ese campo
+    // vacío y Futon guarda el idioma real del capítulo en branch.
+    language = (source as? MangaParserSource)?.locale?.takeIf { it.isNotBlank() }
+        ?: branch?.takeIf { it.isNotBlank() },
     scanlator = scanlator,
     uploadDate = uploadDate,
     branch = branch,
