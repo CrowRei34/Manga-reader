@@ -57,8 +57,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             row![
                 column![
                     text(s.name.clone()).size(15).color(palette::TEXT),
-                    text(format!("Idioma: {}", crate::language::label(s.language.as_deref())))
-                        .size(12).color(palette::TEXT_MUTED),
+                    text("Idioma: N/A").size(12).color(palette::TEXT_MUTED),
                 ]
                 .spacing(2)
                 .width(Length::Fill),
@@ -74,7 +73,14 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         })
         .collect();
 
-    column![header, search, scrollable(column(rows).spacing(2)).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill)]
-        .spacing(12)
-        .into()
+    column![
+        header,
+        search,
+        scrollable(column(rows).spacing(2))
+            .style(crate::theme::thin_scrollbar)
+            .height(Length::Fill)
+    ]
+    .spacing(12)
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
+    .into()
 }

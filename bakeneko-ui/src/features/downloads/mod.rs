@@ -9,7 +9,7 @@
 //! state, total, done)`), así que al cargar se enriquece con los títulos de
 //! capítulo desde `chapter_dao::list_for_manga` (mismo `&mut Connection` del
 //! closure `db_blocking`, sin queries adicionales).
-use iced::widget::{button, column, container, row, scrollable, text};
+use iced::widget::{button, column, row, scrollable, text};
 use iced::{Element, Length, Task};
 use std::collections::HashMap;
 
@@ -177,6 +177,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding([6, 14]),
         ]
         .spacing(12)
+        .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
         .into();
     }
 
@@ -201,7 +202,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             }
             _ => state_label(e.state).to_string(),
         };
-        container(row![
+        row![
             icon::glyph(ic, 18, color),
             column![
                 text(title).size(14).color(palette::TEXT),
@@ -214,13 +215,18 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding(6),
         ]
         .spacing(12)
-        .align_y(iced::Alignment::Center))
-        .style(crate::theme::card_container)
-        .padding([7, 10])
-        .width(Length::Fill)
+        .align_y(iced::Alignment::Center)
         .into()
     }))
     .spacing(4);
 
-    column![header, scrollable(rows).style(crate::theme::scrollable_style).width(Length::Fill)].spacing(12).into()
+    column![
+        header,
+        scrollable(rows)
+            .style(crate::theme::thin_scrollbar)
+            .height(Length::Fill)
+    ]
+    .spacing(12)
+    .padding(iced::Padding { top: 20.0, bottom: 20.0, left: 20.0, right: 16.0 })
+    .into()
 }

@@ -115,4 +115,9 @@ pub struct HistoryEntry {
 }
 
 #[derive(Debug, Clone)]
-pub struct MangaRef { pub source: String, pub url: String, pub title: String }
+pub struct MangaRef {
+    pub source: String,
+    pub url: String,
+    pub title: String,
+    pub cover_url: Option<String>,
+}

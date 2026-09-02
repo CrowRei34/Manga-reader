@@ -424,35 +424,16 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .style(crate::theme::primary_button)
         .padding([8, 20]);
 
-    // En ventanas estrechas los filtros bajan a una segunda fila para que el
-    // campo de búsqueda conserve un ancho útil y nunca empuje el botón fuera
-    // de la ventana. En escritorio amplio se mantiene la barra compacta.
-    let heading = row![
+    let header = row![
         icon::glyph(icon::EXPLORE, 20, palette::ACCENT),
         text("Explorar").size(22).color(palette::TEXT),
+        source_button,
+        category_button,
+        search,
+        buscar_btn,
     ]
-    .spacing(10)
+    .spacing(12)
     .align_y(iced::Alignment::Center);
-    let filters: Element<'_, AppMessage> = if state.window_size.0 < 700.0 {
-        column![
-            row![source_button, category_button].spacing(8),
-            row![search, buscar_btn].spacing(8).width(Length::Fill),
-        ]
-        .spacing(8)
-        .width(Length::Fill)
-        .into()
-    } else {
-        row![source_button, category_button, search, buscar_btn]
-            .spacing(10)
-            .align_y(iced::Alignment::Center)
-            .width(Length::Fill)
-            .into()
-    };
-    let header: Element<'_, AppMessage> = if state.window_size.0 < 900.0 {
-        column![heading, filters].spacing(8).width(Length::Fill).into()
-    } else {
-        row![heading, filters].spacing(14).align_y(iced::Alignment::Center).into()
-    };
 
     let source_panel: Option<Element<'_, AppMessage>> = state.browse.source_panel_open.then(|| {
         let filter = text_input("Filtrar fuentes…", &state.browse.source_query)
@@ -477,7 +458,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .style(crate::theme::chip_button(state.browse.source_language.is_none()))
                 .padding([6, 10]),
         );
-        for (key, label, count) in languages {
+        for (key, label, count) in languages.into_iter().take(6) {
             let selected = state.browse.source_language.as_deref() == Some(key.as_str());
             language_chips = language_chips.push(
                 button(text(format!("{label} ({count})")).size(12))
@@ -533,17 +514,16 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             panel_header,
             row![
                 text("Idioma").size(12).color(palette::TEXT_MUTED),
-                scrollable(language_chips)
-                    .style(crate::theme::scrollable_style)
-                    .width(Length::Fill)
-                    .direction(scrollable::Direction::Horizontal(Default::default())),
+                language_chips,
             ].spacing(10).align_y(iced::Alignment::Center),
             filter,
             text(format!(
                 "Filtra por idioma o nombre. Se consultan {MAX_CONCURRENT_SEARCHES} fuentes a la vez para mantener la app fluida."
             ))
                 .size(11).color(palette::TEXT_MUTED),
-            scrollable(column(source_rows).spacing(1)).style(crate::theme::scrollable_style).width(Length::Fill).height(Length::Fill),
+            scrollable(column(source_rows).spacing(1))
+                .style(crate::theme::thin_scrollbar)
+                .height(Length::Fill),
         ].spacing(8))
             .style(crate::theme::card_container)
             .padding(10)
@@ -634,7 +614,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let grid = crate::widgets::cover::search_result_grid(
         &visible_mangas,
         &state.covers,
-        crate::widgets::cover::per_row_for(state.window_size.0),
+        state.window_size.0,
         &state.sources,
         state.browse.group_results,
         &state.browse.visible_per_source,
@@ -687,7 +667,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .padding(40)
             .into()
     } else {
-        column![grid, footer].spacing(16).width(Length::Fill).into()
+        column![grid, footer].spacing(16).into()
     };
 
     let mut header_content = column![header].spacing(8);
@@ -715,16 +695,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }
 
     let has_header_status = !state.browse.search_errors.is_empty() || state.browse.loading;
-    let compact_header = state.window_size.0 < 900.0;
-    let very_compact_header = state.window_size.0 < 700.0;
-    let header_height = match (compact_header, has_header_status) {
-        (true, true) if very_compact_header => 180.0,
-        (true, false) if very_compact_header => 156.0,
-        (true, true) => 132.0,
-        (true, false) => 108.0,
-        (false, true) => 88.0,
-        (false, false) => 68.0,
-    };
+    let header_height = if has_header_status { 88.0 } else { 68.0 };
     let header_container = container(header_content)
         .style(crate::theme::content_container)
         .padding(iced::Padding { top: 20.0, bottom: 8.0, left: 0.0, right: 0.0 })
@@ -739,12 +710,11 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         (Some(panel), _) | (_, Some(panel)) => panel,
         (None, None) => container(
             scrollable(body)
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
                 .on_scroll(|vp| {
                     let off = vp.relative_offset();
                     AppMessage::Browse(Message::Scrolled(off.y as f32))
                 })
+                .style(crate::theme::thin_scrollbar)
                 .height(Length::Fill)
         )
         .clip(true)
@@ -772,11 +742,39 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 }
 
 fn language_label(locale: Option<&str>) -> &'static str {
-    crate::language::label(locale)
+    let locale = locale.unwrap_or("").to_ascii_lowercase();
+    if locale.starts_with("es") { "Español" }
+    else if locale.starts_with("en") { "Inglés" }
+    else if locale.starts_with("pt") { "Portugués" }
+    else if locale.starts_with("fr") { "Francés" }
+    else if locale.starts_with("de") { "Alemán" }
+    else if locale.starts_with("it") { "Italiano" }
+    else if locale.starts_with("ru") { "Ruso" }
+    else if locale.starts_with("ja") { "Japonés" }
+    else if locale.starts_with("ko") { "Coreano" }
+    else if locale.starts_with("zh") { "Chino" }
+    else if locale.starts_with("vi") { "Vietnamita" }
+    else if locale.starts_with("id") { "Indonesio" }
+    else if locale.is_empty() { "Idioma mixto" }
+    else { "Otro idioma" }
 }
 
 fn language_key(locale: Option<&str>) -> &'static str {
-    crate::language::key(locale)
+    let locale = locale.unwrap_or("").to_ascii_lowercase();
+    if locale.starts_with("es") { "es" }
+    else if locale.starts_with("en") { "en" }
+    else if locale.starts_with("pt") { "pt" }
+    else if locale.starts_with("fr") { "fr" }
+    else if locale.starts_with("de") { "de" }
+    else if locale.starts_with("it") { "it" }
+    else if locale.starts_with("ru") { "ru" }
+    else if locale.starts_with("ja") { "ja" }
+    else if locale.starts_with("ko") { "ko" }
+    else if locale.starts_with("zh") { "zh" }
+    else if locale.starts_with("vi") { "vi" }
+    else if locale.starts_with("id") { "id" }
+    else if locale.is_empty() { "mixed" }
+    else { "other" }
 }
 
 fn source_matches_filters(source: &Source, query: &str, language: Option<&str>) -> bool {
