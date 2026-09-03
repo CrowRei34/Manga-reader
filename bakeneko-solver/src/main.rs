@@ -249,11 +249,14 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pending_responders.insert(id.clone(), responder);
                 let escaped_path = fetch_path.replace('\\', "\\\\").replace('\'', "\\'");
                 let escaped_id = id.replace('\\', "\\\\").replace('\'', "\\'");
-                let is_image_req = fetch_path.contains("/chapters/")
+                let is_image_req = !fetch_path.starts_with("/api/") && (
+                    fetch_path.starts_with("/chapters/")
+                    || fetch_path.contains("/chapters/manga_")
                     || fetch_path.ends_with(".webp")
                     || fetch_path.ends_with(".jpg")
                     || fetch_path.ends_with(".jpeg")
-                    || fetch_path.ends_with(".png");
+                    || fetch_path.ends_with(".png")
+                );
 
                 let eval_str = if is_image_req {
                     format!(

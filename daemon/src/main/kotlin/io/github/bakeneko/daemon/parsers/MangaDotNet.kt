@@ -5,6 +5,8 @@ import io.github.bakeneko.daemon.MangaDto
 import io.github.bakeneko.daemon.PageDto
 import io.github.bakeneko.daemon.SourceDto
 import kotlinx.serialization.json.Json
+import kotlinx.serialization.json.JsonArray
+import kotlinx.serialization.json.JsonObject
 import kotlinx.serialization.json.jsonArray
 import kotlinx.serialization.json.jsonObject
 import kotlinx.serialization.json.jsonPrimitive
@@ -341,7 +343,15 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
         try {
             val chaptersBody = executeGet("$BASE_URL/api/manga/$id/chapters/list")
             if (chaptersBody.isNotBlank()) {
-                val chaptersArray = json.parseToJsonElement(chaptersBody).jsonArray
+                val parsedEl = json.parseToJsonElement(chaptersBody)
+                val chaptersArray = when (parsedEl) {
+                    is JsonArray -> parsedEl
+                    is JsonObject -> parsedEl["chapters"]?.jsonArray
+                        ?: parsedEl["data"]?.jsonArray
+                        ?: parsedEl["list"]?.jsonArray
+                        ?: JsonArray(emptyList())
+                    else -> JsonArray(emptyList())
+                }
                 for (chItem in chaptersArray) {
                     val ch = chItem.jsonObject
                     val chId = ch["id"]?.jsonPrimitive?.content ?: continue
