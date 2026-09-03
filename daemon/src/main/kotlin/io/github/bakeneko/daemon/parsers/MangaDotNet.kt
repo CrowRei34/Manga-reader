@@ -368,11 +368,17 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
 
                     val language = ch["language"]?.jsonPrimitive?.content
                     val scanlator = ch["scanlator_name"]?.jsonPrimitive?.content
+                    val chSource = ch["source"]?.jsonPrimitive?.content ?: "user"
+                    val chUrl = if (chSource.equals("scraper", ignoreCase = true)) {
+                        "/chapters/$chId"
+                    } else {
+                        "/uploads/$chId"
+                    }
 
                     chaptersList.add(
                         ChapterDto(
                             source = SOURCE_ID,
-                            url = "/chapter/$chId",
+                            url = chUrl,
                             title = displayTitle,
                             number = chNum,
                             volume = chVol,
@@ -404,10 +410,18 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
     }
 
     suspend fun pages(chapterDto: ChapterDto): List<PageDto> {
-        val id = chapterDto.url.removePrefix("/chapter/").trim().takeWhile { it.isDigit() }
+        val cleanUrl = chapterDto.url.removePrefix("/chapter/").removePrefix("/").trim()
+        val isScraper = cleanUrl.startsWith("chapters/") || cleanUrl.contains("scraper")
+        val id = cleanUrl.removePrefix("chapters/").removePrefix("uploads/").takeWhile { it.isDigit() }
         if (id.isEmpty()) return emptyList()
 
-        val body = executeGet("$BASE_URL/api/uploads/$id/images")
+        val primaryUrl = if (isScraper) "$BASE_URL/api/chapters/$id/images" else "$BASE_URL/api/uploads/$id/images"
+        val fallbackUrl = if (isScraper) "$BASE_URL/api/uploads/$id/images" else "$BASE_URL/api/chapters/$id/images"
+
+        var body = executeGet(primaryUrl)
+        if (body.isBlank() || !body.contains("\"images\":")) {
+            body = executeGet(fallbackUrl)
+        }
         if (body.isBlank()) return emptyList()
 
         return try {
