@@ -12,6 +12,7 @@ import kotlinx.serialization.json.jsonPrimitive
 import kotlinx.serialization.json.put
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
+import io.github.bakeneko.daemon.parsers.MangaDotNet
 import io.github.landwarderer.futon.parsers.model.MangaListFilter
 import io.github.landwarderer.futon.parsers.model.MangaParserSource
 import io.github.landwarderer.futon.parsers.model.SortOrder
@@ -27,6 +28,7 @@ import io.github.landwarderer.futon.parsers.model.SortOrder
 class Methods(private val ctx: DaemonLoaderContext) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
+    private val mangaDotNet = MangaDotNet(ctx.httpClient)
 
     /** Devuelve el JsonElement del `result`. Lanza [RpcError] en fallo. */
     suspend fun invoke(method: String, params: JsonObject?): JsonElement = when (method) {
@@ -35,41 +37,68 @@ class Methods(private val ctx: DaemonLoaderContext) {
             put("java", System.getProperty("java.version"))
         }
 
-        "sources.list" ->
-            json.encodeToJsonElement(MangaParserSource.entries.map { it.toDto() })
+        "sources.list" -> {
+            val official = MangaParserSource.entries.map { it.toDto() }
+            val allSources = listOf(MangaDotNet.SOURCE_DTO) + official
+            json.encodeToJsonElement(allSources)
+        }
 
         "catalog.list" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val offset = params.intOrDefault("offset", 0)
             val query = params?.optionalString("query")
             val categories = params?.get("categories")?.jsonArray
                 ?.mapNotNull { (it as? JsonPrimitive)?.content }
                 ?: emptyList()
-            catalog(source, offset, query, categories)
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.catalog(offset, query, categories))
+            } else {
+                val source = params.source()
+                catalog(source, offset, query, categories)
+            }
         }
 
         "manga.details" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val manga = params.reqObj("manga").decode<MangaDto>()
-            json.encodeToJsonElement(details(source, manga))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.details(manga))
+            } else {
+                val source = params.source()
+                json.encodeToJsonElement(details(source, manga))
+            }
         }
 
         "chapter.pages" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val chapter = params.reqObj("chapter").decode<ChapterDto>()
-            json.encodeToJsonElement(pages(source, chapter))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                json.encodeToJsonElement(mangaDotNet.pages(chapter))
+            } else {
+                val source = params.source()
+                json.encodeToJsonElement(pages(source, chapter))
+            }
         }
 
         "page.url" -> {
-            val source = params.source()
+            val sourceId = params.sourceId()
             val page = params.reqObj("page").decode<PageDto>()
-            JsonPrimitive(pages_url(source, page))
+            if (sourceId == MangaDotNet.SOURCE_ID) {
+                JsonPrimitive(page.url)
+            } else {
+                val source = params.source()
+                JsonPrimitive(pages_url(source, page))
+            }
         }
 
         "source.headers" -> {
-            val source = params.source()
-            val parser = getParser(source)
-            val headers = parser.getRequestHeaders()
+            val sourceId = params.sourceId()
+            val headers = if (sourceId == MangaDotNet.SOURCE_ID) {
+                mangaDotNet.getRequestHeaders()
+            } else {
+                val source = params.source()
+                getParser(source).getRequestHeaders()
+            }
             buildJsonObject {
                 for (i in 0 until headers.size) {
                     put(headers.name(i), headers.value(i))
@@ -78,6 +107,10 @@ class Methods(private val ctx: DaemonLoaderContext) {
         }
 
         else -> throw RpcError(-32601, "método desconocido: $method")
+    }
+
+    private fun JsonObject?.sourceId(): String {
+        return this?.optionalString("source") ?: throw RpcError(-32602, "falta source")
     }
 
     private fun JsonObject?.source(): MangaParserSource {
