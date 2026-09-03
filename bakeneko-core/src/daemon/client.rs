@@ -92,6 +92,18 @@ impl DaemonClient {
             .current_dir(jar.parent().unwrap_or(Path::new(".")));
 
         if let Ok(exec) = std::env::current_exe() {
+            let exec_dir = exec.parent().unwrap();
+            let solver_candidates = vec![
+                exec_dir.join("bakeneko-solver"),
+                PathBuf::from("target/release/bakeneko-solver"),
+                PathBuf::from("target/debug/bakeneko-solver"),
+            ];
+            if let Some(solver) = solver_candidates.into_iter().find(|p| p.exists()) {
+                if let Ok(abs) = solver.canonicalize() {
+                    cmd.env("BAKENEKO_SOLVER_PATH", abs.to_string_lossy().to_string());
+                }
+            }
+
             let jre = exec.parent().unwrap().join("jre/bin/java");
             if java == jre.to_string_lossy() {
                 let jre_lib = exec.parent().unwrap().join("jre/lib");

@@ -109,6 +109,12 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
 
     private fun startSolverDaemon() {
         try {
+            val sockPath = getSolverSocketPath()
+            val sockFile = java.io.File(sockPath)
+            if (sockFile.exists()) {
+                sockFile.delete()
+            }
+
             val solverBin = System.getenv("BAKENEKO_SOLVER_PATH") ?: run {
                 val execDir = try {
                     java.io.File(MangaDotNet::class.java.protectionDomain.codeSource.location.toURI()).parentFile
@@ -122,7 +128,11 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
                 if (execDir != null) {
                     paths.add(java.io.File(execDir, "bakeneko-solver").absolutePath)
                     paths.add(java.io.File(execDir.parentFile, "bakeneko-solver").absolutePath)
-                    paths.add(java.io.File(execDir.parentFile?.parentFile, "target/release/bakeneko-solver").absolutePath)
+                    val projectRoot = execDir.parentFile?.parentFile?.parentFile
+                    if (projectRoot != null) {
+                        paths.add(java.io.File(projectRoot, "target/release/bakeneko-solver").absolutePath)
+                        paths.add(java.io.File(projectRoot, "target/debug/bakeneko-solver").absolutePath)
+                    }
                 }
                 paths.firstOrNull { java.io.File(it).exists() } ?: "bakeneko-solver"
             }
@@ -131,7 +141,6 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
             pb.redirectError(ProcessBuilder.Redirect.DISCARD)
             pb.start()
 
-            val sockFile = java.io.File(getSolverSocketPath())
             for (i in 0..50) {
                 if (sockFile.exists()) break
                 Thread.sleep(100)
@@ -141,7 +150,7 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
         }
     }
 
-    private fun querySolverDaemon(url: String): String {
+    private fun querySolverDaemon(url: String, retryCount: Int = 0): String {
         val sockPath = getSolverSocketPath()
         val socketFile = java.io.File(sockPath)
         if (!socketFile.exists()) {
@@ -174,6 +183,13 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
                 }
             }
         } catch (e: Exception) {
+            if (retryCount == 0) {
+                try {
+                    java.io.File(sockPath).delete()
+                } catch (_: Exception) {}
+                startSolverDaemon()
+                return querySolverDaemon(url, retryCount + 1)
+            }
             System.err.println("querySolverDaemon error: ${e.message}")
         }
         return ""
