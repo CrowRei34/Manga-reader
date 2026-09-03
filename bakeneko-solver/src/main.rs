@@ -265,17 +265,21 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             try {{
                                 let resp = await fetch('{}');
                                 let blob = await resp.blob();
-                                let fr = new FileReader();
-                                fr.onloadend = () => {{
-                                    let b64 = fr.result.split(',')[1];
-                                    window.ipc.postMessage(JSON.stringify({{
-                                        id: '{}',
-                                        status: resp.status,
-                                        result: {{ url: '{}', data: b64, is_image: true }},
-                                        error: ''
-                                    }}));
-                                }};
-                                fr.readAsDataURL(blob);
+                                let b64 = await new Promise((res, rej) => {{
+                                    let fr = new FileReader();
+                                    fr.onloadend = () => {{
+                                        let r = fr.result || '';
+                                        res(r.includes(',') ? r.split(',')[1] : r);
+                                    }};
+                                    fr.onerror = rej;
+                                    fr.readAsDataURL(blob);
+                                }});
+                                window.ipc.postMessage(JSON.stringify({{
+                                    id: '{}',
+                                    status: resp.status,
+                                    result: {{ url: '{}', data: b64, is_image: true }},
+                                    error: ''
+                                }}));
                             }} catch (err) {{
                                 window.ipc.postMessage(JSON.stringify({{
                                     id: '{}',
@@ -304,29 +308,35 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 }}));
 
                                 if (jsonVal && jsonVal.images && Array.isArray(jsonVal.images)) {{
-                                    for (let img of jsonVal.images) {{
-                                        let imgPath = img.url || img.path;
-                                        if (imgPath) {{
+                                    let imgs = jsonVal.images;
+                                    for (let i = 0; i < imgs.length; i += 4) {{
+                                        let chunk = imgs.slice(i, i + 4);
+                                        await Promise.all(chunk.map(async (img) => {{
+                                            let imgPath = img.url || img.path;
+                                            if (!imgPath) return;
                                             let fullImgUrl = imgPath.startsWith('/') ? 'https://mangadot.net' + imgPath : imgPath;
-                                            fetch(fullImgUrl)
-                                                .then(r => r.blob())
-                                                .then(b => {{
+                                            try {{
+                                                let r = await fetch(fullImgUrl);
+                                                let b = await r.blob();
+                                                let b64 = await new Promise((res, rej) => {{
                                                     let fr = new FileReader();
                                                     fr.onloadend = () => {{
-                                                        let b64 = fr.result.split(',')[1];
-                                                        if (b64) {{
-                                                            window.ipc.postMessage(JSON.stringify({{
-                                                                id: '__cache_img__',
-                                                                status: 200,
-                                                                result: {{ url: fullImgUrl, data: b64, is_image: true }},
-                                                                error: ''
-                                                            }}));
-                                                        }}
+                                                        let s = fr.result || '';
+                                                        res(s.includes(',') ? s.split(',')[1] : s);
                                                     }};
+                                                    fr.onerror = rej;
                                                     fr.readAsDataURL(b);
-                                                }})
-                                                .catch(() => {{}});
-                                        }}
+                                                }});
+                                                if (b64) {{
+                                                    window.ipc.postMessage(JSON.stringify({{
+                                                        id: '__cache_img__',
+                                                        status: 200,
+                                                        result: {{ url: fullImgUrl, data: b64, is_image: true }},
+                                                        error: ''
+                                                    }}));
+                                                }}
+                                            }} catch(e) {{}}
+                                        }}));
                                     }}
                                 }}
                             }} catch (err) {{
@@ -357,7 +367,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         } else {
                                             stem.clone()
                                         };
-                                        let ext = if img_url.contains(".webp") {
+                                        let ext = if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) {
+                                            "jpg"
+                                        } else if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) {
+                                            "png"
+                                        } else if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" {
+                                            "webp"
+                                        } else if img_url.contains(".webp") {
                                             "webp"
                                         } else if img_url.contains(".png") {
                                             "png"
