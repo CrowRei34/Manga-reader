@@ -77,6 +77,11 @@ pull request automático; nunca modifica directamente la rama principal.
 La comprobación también se puede iniciar manualmente desde **Actions → Actualizar
 núcleo Futon → Run workflow**.
 
+Cada push y pull request activa además el workflow **Validar cada commit**, que
+compila el daemon Java, compila la aplicación Rust y ejecuta las pruebas. La
+publicación del paquete portátil continúa reservada para etiquetas `vX.Y.Z` o
+una ejecución manual del workflow correspondiente.
+
 ## Licencia
 
 [BSD 3-Clause](LICENSE)
