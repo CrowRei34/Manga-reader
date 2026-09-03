@@ -55,43 +55,143 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
         return null
     }
 
-    fun getRequestHeaders(): Headers {
-        val builder = Headers.Builder()
-            .set("User-Agent", USER_AGENT)
-            .set("Referer", "$BASE_URL/")
-            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-        getSavedCookies()?.let { builder.set("Cookie", it) }
-        return builder.build()
+    private val client = httpClient.newBuilder()
+        .cookieJar(object : okhttp3.CookieJar {
+            override fun saveFromResponse(url: okhttp3.HttpUrl, cookies: List<okhttp3.Cookie>) {}
+            override fun loadForRequest(url: okhttp3.HttpUrl): List<okhttp3.Cookie> {
+                val list = mutableListOf<okhttp3.Cookie>()
+                val cookieStr = getSavedCookies() ?: return list
+                for (c in cookieStr.split(";")) {
+                    val trimmed = c.trim()
+                    val eq = trimmed.indexOf('=')
+                    if (eq > 0) {
+                        val name = trimmed.substring(0, eq)
+                        val value = trimmed.substring(eq + 1)
+                        try {
+                            val cookie = okhttp3.Cookie.Builder()
+                                .name(name)
+                                .value(value)
+                                .domain(url.host)
+                                .path("/")
+                                .build()
+                            list.add(cookie)
+                        } catch (_: Exception) {}
+                    }
+                }
+                return list
+            }
+        })
+        .build()
+
+    fun getRequestHeaders(): Headers = Headers.Builder()
+        .set("User-Agent", USER_AGENT)
+        .set("Referer", "$BASE_URL/")
+        .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        .build()
+
+    private fun apiHeaders(): Headers = Headers.Builder()
+        .set("User-Agent", USER_AGENT)
+        .set("Referer", "$BASE_URL/")
+        .set("Accept", "application/json, text/plain, */*")
+        .build()
+
+    private fun getSolverSocketPath(): String {
+        val runtimeDir = System.getenv("XDG_RUNTIME_DIR") ?: run {
+            val uid = try {
+                java.io.File("/proc/self/status").readLines()
+                    .firstOrNull { it.startsWith("Uid:") }
+                    ?.split("\\s+".toRegex())?.getOrNull(1) ?: "1000"
+            } catch (_: Exception) { "1000" }
+            "/tmp/bakeneko-$uid"
+        }
+        return "$runtimeDir/bakeneko/solver.sock"
     }
 
-    private fun apiHeaders(): Headers {
-        val builder = Headers.Builder()
-            .set("User-Agent", USER_AGENT)
-            .set("Referer", "$BASE_URL/")
-            .set("Accept", "application/json, text/plain, */*")
-        getSavedCookies()?.let { builder.set("Cookie", it) }
-        return builder.build()
+    private fun startSolverDaemon() {
+        try {
+            val solverBin = System.getenv("BAKENEKO_SOLVER_PATH") ?: run {
+                val paths = listOf(
+                    "target/release/bakeneko-solver",
+                    "target/debug/bakeneko-solver",
+                    "bakeneko-solver",
+                    "/usr/local/bin/bakeneko-solver",
+                )
+                paths.firstOrNull { java.io.File(it).exists() } ?: "bakeneko-solver"
+            }
+            val pb = ProcessBuilder(solverBin)
+            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
+            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
+            pb.start()
+
+            val sockFile = java.io.File(getSolverSocketPath())
+            for (i in 0..50) {
+                if (sockFile.exists()) break
+                Thread.sleep(100)
+            }
+        } catch (e: Exception) {
+            System.err.println("Error spawning bakeneko-solver daemon: ${e.message}")
+        }
+    }
+
+    private fun querySolverDaemon(url: String): String {
+        val sockPath = getSolverSocketPath()
+        val socketFile = java.io.File(sockPath)
+        if (!socketFile.exists()) {
+            startSolverDaemon()
+        }
+
+        try {
+            val address = java.net.UnixDomainSocketAddress.of(sockPath)
+            java.nio.channels.SocketChannel.open(java.net.StandardProtocolFamily.UNIX).use { channel ->
+                channel.connect(address)
+                val reader = java.io.BufferedReader(java.nio.channels.Channels.newReader(channel, Charsets.UTF_8))
+                val writer = java.io.BufferedWriter(java.nio.channels.Channels.newWriter(channel, Charsets.UTF_8))
+
+                val reqId = java.util.UUID.randomUUID().toString()
+                val escapedUrl = url.replace("\\", "\\\\").replace("\"", "\\\"")
+                val reqJson = "{\"id\":\"$reqId\",\"url\":\"$escapedUrl\",\"ping\":false}\n"
+                writer.write(reqJson)
+                writer.flush()
+
+                val responseLine = reader.readLine() ?: return ""
+                val root = json.parseToJsonElement(responseLine).jsonObject
+                val resultEl = root["result"] ?: return ""
+                val resultStr = if (resultEl is kotlinx.serialization.json.JsonPrimitive && resultEl.isString) {
+                    resultEl.content
+                } else {
+                    resultEl.toString()
+                }
+                if (resultStr.isNotBlank() && (resultStr.startsWith("{") || resultStr.startsWith("["))) {
+                    return resultStr
+                }
+            }
+        } catch (e: Exception) {
+            System.err.println("querySolverDaemon error: ${e.message}")
+        }
+        return ""
     }
 
     private fun executeGet(url: String): String {
-        return try {
+        try {
             val request = Request.Builder()
                 .url(url)
                 .headers(apiHeaders())
                 .get()
                 .build()
-            httpClient.newCall(request).execute().use { response ->
+            client.newCall(request).execute().use { response ->
                 if (response.isSuccessful) {
-                    response.body?.string() ?: ""
-                } else {
-                    System.err.println("MangaDot HTTP ${response.code} for $url")
-                    ""
+                    val body = response.body?.string() ?: ""
+                    if (body.isNotBlank()) return body
+                } else if (response.code == 403 || response.code == 503) {
+                    System.err.println("MangaDot HTTP ${response.code} (Cloudflare) on $url -> Delegating to bakeneko-solver daemon...")
+                    return querySolverDaemon(url)
                 }
             }
         } catch (e: Exception) {
-            System.err.println("MangaDot network error for $url: ${e.message}")
-            ""
+            // Fallback a solver daemon
+            return querySolverDaemon(url)
         }
+        return querySolverDaemon(url)
     }
 
     suspend fun catalog(offset: Int, query: String?, categories: List<String>): List<MangaDto> {
@@ -278,7 +378,7 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
             for (img in imagesArray) {
                 val imgObj = img.jsonObject
                 val pageIndex = imgObj["page_index"]?.jsonPrimitive?.content?.toIntOrNull() ?: (pagesList.size + 1)
-                val path = imgObj["path"]?.jsonPrimitive?.content ?: continue
+                val path = imgObj["url"]?.jsonPrimitive?.content ?: imgObj["path"]?.jsonPrimitive?.content ?: continue
                 val fullUrl = if (path.startsWith("/")) "$BASE_URL$path" else path
 
                 pagesList.add(
