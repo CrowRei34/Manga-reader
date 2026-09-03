@@ -1,5 +1,6 @@
 [workspace]
-members = ["bakeneko-core", "bakeneko-ui"]
+members = ["bakeneko-core", "bakeneko-ui", "bakeneko-solver"]
+default-members = ["bakeneko-ui"]
 resolver = "2"
 
 [profile.release]

@@ -30,17 +30,48 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
 
     private val json = Json { ignoreUnknownKeys = true; isLenient = true }
 
-    fun getRequestHeaders(): Headers = Headers.Builder()
-        .set("User-Agent", USER_AGENT)
-        .set("Referer", "$BASE_URL/")
-        .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-        .build()
+    private fun getSavedCookies(): String? {
+        val dataDir = System.getenv("XDG_DATA_HOME") ?: "${System.getenv("HOME")}/.local/share"
+        val txtFile = java.io.File("$dataDir/bakeneko/mangadot_cookies.txt")
+        if (txtFile.exists()) {
+            val content = txtFile.readText().trim()
+            if (content.isNotBlank()) return content
+        }
+        val soupFile = java.io.File("$dataDir/bakeneko/solver_profile/cookies")
+        if (soupFile.exists()) {
+            val cookies = mutableListOf<String>()
+            soupFile.forEachLine { line ->
+                if (!line.startsWith("#") || line.startsWith("#HttpOnly_")) {
+                    val parts = line.split("\t")
+                    if (parts.size >= 7 && parts[0].contains("mangadot.net")) {
+                        cookies.add("${parts[5]}=${parts[6]}")
+                    }
+                }
+            }
+            if (cookies.isNotEmpty()) {
+                return cookies.joinToString("; ")
+            }
+        }
+        return null
+    }
 
-    private fun apiHeaders(): Headers = Headers.Builder()
-        .set("User-Agent", USER_AGENT)
-        .set("Referer", "$BASE_URL/")
-        .set("Accept", "application/json, text/plain, */*")
-        .build()
+    fun getRequestHeaders(): Headers {
+        val builder = Headers.Builder()
+            .set("User-Agent", USER_AGENT)
+            .set("Referer", "$BASE_URL/")
+            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        getSavedCookies()?.let { builder.set("Cookie", it) }
+        return builder.build()
+    }
+
+    private fun apiHeaders(): Headers {
+        val builder = Headers.Builder()
+            .set("User-Agent", USER_AGENT)
+            .set("Referer", "$BASE_URL/")
+            .set("Accept", "application/json, text/plain, */*")
+        getSavedCookies()?.let { builder.set("Cookie", it) }
+        return builder.build()
+    }
 
     private fun executeGet(url: String): String {
         return try {
