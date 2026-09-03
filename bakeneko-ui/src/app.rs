@@ -101,7 +101,10 @@ pub enum Message {
     Details(details::Message),
     DetailsFetched(Result<Manga, DaemonError>),
     Reader(reader::Message),
-    ReaderPagesFetched(Result<Vec<bakeneko_core::models::Page>, DaemonError>),
+    ReaderPagesFetched {
+        generation: u64,
+        result: Result<Vec<bakeneko_core::models::Page>, DaemonError>,
+    },
     DownloadsLoaded(downloads::Loaded),
     DownloadEvent(DownloadEvent),
     Download(downloads::Message),
@@ -232,8 +235,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Details(m) => details::update(state, m),
         Message::DetailsFetched(r) => details::update(state, details::Message::Fetched(r)),
         Message::Reader(m) => reader::update(state, m),
-        Message::ReaderPagesFetched(r) => {
-            reader::update(state, reader::Message::PagesFetched(r))
+        Message::ReaderPagesFetched { generation, result } => {
+            reader::update(state, reader::Message::PagesFetched { generation, result })
         }
         Message::DownloadsLoaded(Ok((entries, titles))) => {
             state.downloads_state.entries = entries;

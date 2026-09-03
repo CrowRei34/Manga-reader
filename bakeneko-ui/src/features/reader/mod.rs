@@ -120,6 +120,9 @@ pub struct State {
     pub current_page: usize,
     /// `true` mientras se cargan/resuelven/descargan las páginas.
     pub loading: bool,
+    /// Identifica la carga de capítulo activa. Las respuestas de cargas
+    /// anteriores se ignoran para evitar mezclar páginas al cambiar rápido.
+    pub load_generation: u64,
     /// Headers HTTP de la fuente.
     pub headers: HashMap<String, String>,
     /// Modo de lectura.
@@ -144,11 +147,21 @@ pub enum Message {
     /// Abre un capítulo: persiste historial + dispara `chapter_pages`.
     Load(Chapter),
     /// Respuesta de `chapter_pages` (ejecutada por el reducer global).
-    PagesFetched(Result<Vec<bakeneko_core::models::Page>, bakeneko_core::error::DaemonError>),
+    PagesFetched {
+        generation: u64,
+        result: Result<Vec<bakeneko_core::models::Page>, bakeneko_core::error::DaemonError>,
+    },
     /// Respuesta de `source_headers`.
-    HeadersFetched(Result<HashMap<String, String>, bakeneko_core::error::DaemonError>),
+    HeadersFetched {
+        generation: u64,
+        result: Result<HashMap<String, String>, bakeneko_core::error::DaemonError>,
+    },
     /// Una página se descargó (path en disco + dimensiones, o `None` si falló).
-    PageDownloaded { index: usize, entry: Option<(PathBuf, (u32, u32))> },
+    PageDownloaded {
+        generation: u64,
+        index: usize,
+        entry: Option<(PathBuf, (u32, u32))>,
+    },
     /// Resultado de aplicar un filtro sin bloquear el hilo de UI.
     FilteredPage {
         generation: u64,
@@ -194,6 +207,8 @@ fn chapter_idx(ch: &Chapter) -> i32 {
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
         Message::Load(ch) => {
+            state.reader.load_generation = state.reader.load_generation.wrapping_add(1);
+            let generation = state.reader.load_generation;
             if let (Some(discord), Some(manga)) = (&state.discord_presence, &state.details.manga) {
                 discord.set_reading(crate::discord_presence::ReadingActivity {
                     title: manga.title.clone(),
@@ -262,11 +277,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 eprintln!("[reader] Load: pidiendo pages+headers src={src}");
                 let pages_task = Task::perform(
                     async move { d.chapter_pages(&src, &ch).await },
-                    AppMessage::ReaderPagesFetched,
+                    move |result| AppMessage::ReaderPagesFetched { generation, result },
                 );
                 let headers_task = Task::perform(
                     async move { d_headers.source_headers(&src_headers).await },
-                    |r| AppMessage::Reader(Message::HeadersFetched(r)),
+                    move |result| AppMessage::Reader(Message::HeadersFetched { generation, result }),
                 );
                 Task::batch([pages_task, headers_task])
             } else {
@@ -274,7 +289,19 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::none()
             }
         }
-        Message::PagesFetched(Ok(pages)) => {
+        Message::PagesFetched { generation, result } => {
+            if generation != state.reader.load_generation {
+                return Task::none();
+            }
+            let pages = match result {
+                Ok(pages) => pages,
+                Err(e) => {
+                    eprintln!("[reader] PagesFetched ERR: {e}");
+                    state.reader.loading = false;
+                    state.reader.error = Some(e.to_string());
+                    return Task::none();
+                }
+            };
             eprintln!("[reader] PagesFetched OK: {} páginas (headers={})", pages.len(), state.reader.headers.len());
             if pages.is_empty() {
                 state.reader.loading = false;
@@ -331,7 +358,11 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 
                 let mut buffered = stream;
                 while let Some((index, entry)) = buffered.next().await {
-                    let _ = tx.send(AppMessage::Reader(Message::PageDownloaded { index, entry })).await;
+                    let _ = tx.send(AppMessage::Reader(Message::PageDownloaded {
+                        generation,
+                        index,
+                        entry,
+                    })).await;
                 }
             });
             Task::batch([
@@ -342,21 +373,20 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 ),
             ])
         }
-        Message::PagesFetched(Err(e)) => {
-            eprintln!("[reader] PagesFetched ERR: {e}");
-            state.reader.loading = false;
-            state.reader.error = Some(e.to_string());
+        Message::HeadersFetched { generation, result } => {
+            if generation != state.reader.load_generation {
+                return Task::none();
+            }
+            match result {
+                Ok(headers) => state.reader.headers = headers,
+                Err(e) => state.reader.error = Some(e.to_string()),
+            }
             Task::none()
         }
-        Message::HeadersFetched(Ok(headers)) => {
-            state.reader.headers = headers;
-            Task::none()
-        }
-        Message::HeadersFetched(Err(e)) => {
-            state.reader.error = Some(e.to_string());
-            Task::none()
-        }
-        Message::PageDownloaded { index, entry } => {
+        Message::PageDownloaded { generation, index, entry } => {
+            if generation != state.reader.load_generation {
+                return Task::none();
+            }
             eprintln!("[reader] PageDownloaded idx={index} ok={}", entry.is_some());
             while state.reader.page_paths.len() <= index {
                 state.reader.page_paths.push(PathBuf::new());
