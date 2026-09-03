@@ -28,6 +28,8 @@ struct SocketRequest {
     url: String,
     #[serde(default)]
     ping: bool,
+    #[serde(default)]
+    is_image: bool,
 }
 
 #[derive(Serialize, Deserialize)]
@@ -93,6 +95,23 @@ fn get_solver_socket_path() -> PathBuf {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // 1. Matar solver inmediatamente cuando el proceso padre (Bakeneko / Java) muere
+    unsafe {
+        libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);
+    }
+    thread::spawn(|| {
+        let initial_ppid = unsafe { libc::getppid() };
+        loop {
+            thread::sleep(Duration::from_secs(1));
+            let current_ppid = unsafe { libc::getppid() };
+            if current_ppid == 1 || current_ppid != initial_ppid {
+                let sock_path = get_solver_socket_path();
+                let _ = fs::remove_file(&sock_path);
+                std::process::exit(0);
+            }
+        }
+    });
+
     env::set_var("NO_AT_BRIDGE", "1");
     env::set_var("GTK_A11Y", "none");
     env::set_var("GST_DEBUG", "0");
@@ -115,12 +134,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
+    // 2. Ventana invisible realizada: realize() inicializa el widget GTK
+    // sin mapear ninguna ventana al servidor X11 / i3wm (0% posibilidad de ventana en escritorio)
     let window = WindowBuilder::new()
-        .with_title("bakeneko-solver-headless")
-        .with_visible(true)
-        .with_decorations(false)
-        .with_inner_size(tao::dpi::LogicalSize::new(1.0, 1.0))
-        .with_position(tao::dpi::LogicalPosition::new(-10000.0, -10000.0))
+        .with_title("bakeneko-solver")
+        .with_visible(false)
         .build(&event_loop)?;
 
     let gtk_win = window.gtk_window();
@@ -128,7 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     gtk_win.set_skip_pager_hint(true);
     gtk_win.set_type_hint(gdk::WindowTypeHint::Utility);
     gtk_win.set_decorated(false);
-    gtk_win.set_role("bakeneko-solver");
+    gtk_win.realize();
 
     let bakeneko_dir = get_data_dir();
     let profile_dir = bakeneko_dir.join("solver_profile");
@@ -212,7 +230,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
 
         if last_active.elapsed() >= idle_timeout {
-            eprintln!("[solver] inactivo por 3 minutos. Cerrando solver para liberar memoria (~100MB)...");
+            eprintln!("[solver] Inactivo por 3 minutos. Cerrando solver para liberar memoria (~100MB)...");
             let sock_path = get_solver_socket_path();
             let _ = fs::remove_file(&sock_path);
             *control_flow = ControlFlow::Exit;
@@ -231,68 +249,111 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 pending_responders.insert(id.clone(), responder);
                 let escaped_path = fetch_path.replace('\\', "\\\\").replace('\'', "\\'");
                 let escaped_id = id.replace('\\', "\\\\").replace('\'', "\\'");
-                let eval_str = format!(
-                    r#"
-                    (async function() {{
-                        try {{
-                            let resp = await fetch('{}');
-                            let jsonVal = null;
-                            try {{ jsonVal = await resp.json(); }} catch(e) {{ }}
-                            window.ipc.postMessage(JSON.stringify({{
-                                id: '{}',
-                                status: resp.status,
-                                result: jsonVal,
-                                error: ''
-                            }}));
+                let is_image_req = fetch_path.contains("/chapters/")
+                    || fetch_path.ends_with(".webp")
+                    || fetch_path.ends_with(".jpg")
+                    || fetch_path.ends_with(".jpeg")
+                    || fetch_path.ends_with(".png");
 
-                            if (jsonVal && jsonVal.images && Array.isArray(jsonVal.images)) {{
-                                for (let img of jsonVal.images) {{
-                                    let imgPath = img.url || img.path;
-                                    if (imgPath) {{
-                                        let fullImgUrl = imgPath.startsWith('/') ? 'https://mangadot.net' + imgPath : imgPath;
-                                        fetch(fullImgUrl)
-                                            .then(r => r.blob())
-                                            .then(b => {{
-                                                let fr = new FileReader();
-                                                fr.onloadend = () => {{
-                                                    let b64 = fr.result.split(',')[1];
-                                                    if (b64) {{
-                                                        window.ipc.postMessage(JSON.stringify({{
-                                                            id: '__cache_img__',
-                                                            status: 200,
-                                                            result: {{ url: fullImgUrl, data: b64 }},
-                                                            error: ''
-                                                        }}));
-                                                    }}
-                                                }};
-                                                fr.readAsDataURL(b);
-                                            }})
-                                            .catch(() => {{}});
+                let eval_str = if is_image_req {
+                    format!(
+                        r#"
+                        (async function() {{
+                            try {{
+                                let resp = await fetch('{}');
+                                let blob = await resp.blob();
+                                let fr = new FileReader();
+                                fr.onloadend = () => {{
+                                    let b64 = fr.result.split(',')[1];
+                                    window.ipc.postMessage(JSON.stringify({{
+                                        id: '{}',
+                                        status: resp.status,
+                                        result: {{ url: '{}', data: b64, is_image: true }},
+                                        error: ''
+                                    }}));
+                                }};
+                                fr.readAsDataURL(blob);
+                            }} catch (err) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    id: '{}',
+                                    status: 500,
+                                    result: null,
+                                    error: err.toString()
+                                }}));
+                            }}
+                        }})();
+                        "#,
+                        escaped_path, escaped_id, escaped_path, escaped_id
+                    )
+                } else {
+                    format!(
+                        r#"
+                        (async function() {{
+                            try {{
+                                let resp = await fetch('{}');
+                                let jsonVal = null;
+                                try {{ jsonVal = await resp.json(); }} catch(e) {{ }}
+                                window.ipc.postMessage(JSON.stringify({{
+                                    id: '{}',
+                                    status: resp.status,
+                                    result: jsonVal,
+                                    error: ''
+                                }}));
+
+                                if (jsonVal && jsonVal.images && Array.isArray(jsonVal.images)) {{
+                                    for (let img of jsonVal.images) {{
+                                        let imgPath = img.url || img.path;
+                                        if (imgPath) {{
+                                            let fullImgUrl = imgPath.startsWith('/') ? 'https://mangadot.net' + imgPath : imgPath;
+                                            fetch(fullImgUrl)
+                                                .then(r => r.blob())
+                                                .then(b => {{
+                                                    let fr = new FileReader();
+                                                    fr.onloadend = () => {{
+                                                        let b64 = fr.result.split(',')[1];
+                                                        if (b64) {{
+                                                            window.ipc.postMessage(JSON.stringify({{
+                                                                id: '__cache_img__',
+                                                                status: 200,
+                                                                result: {{ url: fullImgUrl, data: b64, is_image: true }},
+                                                                error: ''
+                                                            }}));
+                                                        }}
+                                                    }};
+                                                    fr.readAsDataURL(b);
+                                                }})
+                                                .catch(() => {{}});
+                                        }}
                                     }}
                                 }}
+                            }} catch (err) {{
+                                window.ipc.postMessage(JSON.stringify({{
+                                    id: '{}',
+                                    status: 500,
+                                    result: null,
+                                    error: err.toString()
+                                }}));
                             }}
-                        }} catch (err) {{
-                            window.ipc.postMessage(JSON.stringify({{
-                                id: '{}',
-                                status: 500,
-                                result: null,
-                                error: err.toString()
-                            }}));
-                        }}
-                    }})();
-                    "#,
-                    escaped_path, escaped_id, escaped_id
-                );
+                        }})();
+                        "#,
+                        escaped_path, escaped_id, escaped_id
+                    )
+                };
                 let _ = webview.evaluate_script(&eval_str);
             }
             Event::UserEvent(UserEvent::IpcResult(msg)) => {
                 if let Ok(ipc) = serde_json::from_str::<IpcMessage>(&msg) {
-                    if ipc.id == "__cache_img__" {
-                        if let Some(res) = ipc.result {
+                    if let Some(res) = &ipc.result {
+                        if res.get("is_image").and_then(|v| v.as_bool()).unwrap_or(false) {
                             if let (Some(url_val), Some(data_val)) = (res.get("url"), res.get("data")) {
                                 if let (Some(img_url), Some(b64_str)) = (url_val.as_str(), data_val.as_str()) {
                                     if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_str) {
                                         let stem = cache_stem(img_url);
+                                        let full_url_stem = if img_url.starts_with('/') {
+                                            cache_stem(&format!("https://mangadot.net{}", img_url))
+                                        } else {
+                                            stem.clone()
+                                        };
                                         let ext = if img_url.contains(".webp") {
                                             "webp"
                                         } else if img_url.contains(".png") {
@@ -300,13 +361,15 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         } else {
                                             "jpg"
                                         };
-                                        let cache_file = cache_dir.join(format!("{stem}.{ext}"));
-                                        let _ = fs::write(&cache_file, bytes);
+                                        let _ = fs::write(cache_dir.join(format!("{stem}.{ext}")), &bytes);
+                                        let _ = fs::write(cache_dir.join(format!("{full_url_stem}.{ext}")), &bytes);
                                     }
                                 }
                             }
+                            if ipc.id == "__cache_img__" {
+                                return;
+                            }
                         }
-                        return;
                     }
 
                     if let Some(responder) = pending_responders.remove(&ipc.id) {

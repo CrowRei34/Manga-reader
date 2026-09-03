@@ -127,7 +127,24 @@ impl ImageCache {
                 }
             }
         }
-        let mut resp = req.send().await?;
+        let mut resp = match req.send().await {
+            Ok(r) => r,
+            Err(e) => {
+                if normalized_url.contains("mangadot.net") {
+                    if let Ok(path) = self.fetch_from_solver(&normalized_url).await {
+                        return Ok(path);
+                    }
+                }
+                return Err(e.into());
+            }
+        };
+
+        if resp.status() == reqwest::StatusCode::FORBIDDEN || resp.status() == reqwest::StatusCode::SERVICE_UNAVAILABLE {
+            if let Ok(path) = self.fetch_from_solver(&normalized_url).await {
+                return Ok(path);
+            }
+            return Err(NetError::Http { status: resp.status(), url: normalized_url });
+        }
         if !resp.status().is_success() {
             return Err(NetError::Http { status: resp.status(), url: normalized_url });
         }
@@ -158,6 +175,50 @@ impl ImageCache {
         let final_path = self.root.join(format!("{stem}.{final_ext}"));
         tokio::fs::rename(&tmp_path, &final_path).await?;
         Ok(final_path)
+    }
+
+    async fn fetch_from_solver(&self, url: &str) -> Result<PathBuf, NetError> {
+        let runtime_dir = std::env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
+            let uid = unsafe { libc::getuid() };
+            format!("/tmp/bakeneko-{}", uid)
+        });
+        let sock_path = std::path::PathBuf::from(runtime_dir).join("bakeneko").join("solver.sock");
+        if !sock_path.exists() {
+            return Err(NetError::Io(std::io::Error::new(std::io::ErrorKind::NotFound, "solver socket not found")));
+        }
+
+        use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
+        use tokio::net::UnixStream;
+
+        let mut stream = UnixStream::connect(&sock_path).await?;
+
+        let stem = Self::stem(url);
+        let req_json = serde_json::json!({
+            "id": format!("img_{stem}"),
+            "url": url,
+            "is_image": true,
+        });
+
+        stream
+            .write_all(format!("{}\n", req_json).as_bytes())
+            .await?;
+
+        let (reader, _) = stream.into_split();
+        let mut buf_reader = BufReader::new(reader);
+        let mut line = String::new();
+        let _ = tokio::time::timeout(std::time::Duration::from_secs(20), buf_reader.read_line(&mut line)).await;
+
+        let path = self.cached_path(url);
+        if path.exists() {
+            return Ok(path);
+        }
+        for ext in ["webp", "jpg", "png", "gif"] {
+            let p = self.root.join(format!("{stem}.{ext}"));
+            if p.exists() {
+                return Ok(p);
+            }
+        }
+        Err(NetError::Io(std::io::Error::new(std::io::ErrorKind::TimedOut, "solver image fetch timed out")))
     }
 
     /// Descarga (o reusa de caché) la imagen de `url` y devuelve un

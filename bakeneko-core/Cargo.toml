@@ -13,6 +13,7 @@ sha2 = "0.10"
 thiserror = "1"
 anyhow = "1"
 async-trait = "0.1"
+libc = "0.2"
 iced = { version = "0.13", features = ["image"] }
 
 [dev-dependencies]
