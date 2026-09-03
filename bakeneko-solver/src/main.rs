@@ -8,10 +8,14 @@ use std::sync::mpsc::{channel, Sender};
 use std::thread;
 use std::time::{Duration, Instant};
 
+use base64::Engine;
+use gtk::prelude::*;
 use serde::{Deserialize, Serialize};
+use sha2::{Digest, Sha256};
 use tao::{
     event::Event,
     event_loop::{ControlFlow, EventLoopBuilder},
+    platform::unix::WindowExtUnix,
     window::WindowBuilder,
 };
 use wry::{WebContext, WebViewBuilder};
@@ -66,6 +70,20 @@ fn get_data_dir() -> PathBuf {
     PathBuf::from(xdg_data).join("bakeneko")
 }
 
+fn get_cache_dir() -> PathBuf {
+    let xdg_cache = env::var("XDG_CACHE_HOME").unwrap_or_else(|_| {
+        let home = env::var("HOME").unwrap_or_else(|_| ".".to_string());
+        format!("{}/.cache", home)
+    });
+    PathBuf::from(xdg_cache).join("bakeneko")
+}
+
+fn cache_stem(url: &str) -> String {
+    let mut hasher = Sha256::new();
+    hasher.update(url.as_bytes());
+    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+}
+
 fn get_solver_socket_path() -> PathBuf {
     let runtime_dir = env::var("XDG_RUNTIME_DIR").unwrap_or_else(|_| {
         let uid = unsafe { libc::getuid() };
@@ -89,15 +107,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         let _ = fs::remove_file(&sock_path);
     }
 
+    let cache_dir = get_cache_dir();
+    let _ = fs::create_dir_all(&cache_dir);
+
     let base_url = "https://mangadot.net";
 
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
     let window = WindowBuilder::new()
-        .with_title("Bakeneko Solver Engine")
-        .with_visible(false)
+        .with_title("bakeneko-solver-headless")
+        .with_visible(true)
+        .with_decorations(false)
+        .with_inner_size(tao::dpi::LogicalSize::new(1.0, 1.0))
+        .with_position(tao::dpi::LogicalPosition::new(-10000.0, -10000.0))
         .build(&event_loop)?;
+
+    let gtk_win = window.gtk_window();
+    gtk_win.set_skip_taskbar_hint(true);
+    gtk_win.set_skip_pager_hint(true);
+    gtk_win.set_type_hint(gdk::WindowTypeHint::Utility);
+    gtk_win.set_decorated(false);
+    gtk_win.set_role("bakeneko-solver");
 
     let bakeneko_dir = get_data_dir();
     let profile_dir = bakeneko_dir.join("solver_profile");
@@ -112,7 +143,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
         })
         .build(&window)?;
 
-    // Iniciar servidor Unix Domain Socket en un hilo dedicado
+    // Servidor Unix Domain Socket en un hilo dedicado
     let listener = UnixListener::bind(&sock_path)?;
     let proxy_server = proxy.clone();
 
@@ -213,6 +244,33 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 result: jsonVal,
                                 error: ''
                             }}));
+
+                            if (jsonVal && jsonVal.images && Array.isArray(jsonVal.images)) {{
+                                for (let img of jsonVal.images) {{
+                                    let imgPath = img.url || img.path;
+                                    if (imgPath) {{
+                                        let fullImgUrl = imgPath.startsWith('/') ? 'https://mangadot.net' + imgPath : imgPath;
+                                        fetch(fullImgUrl)
+                                            .then(r => r.blob())
+                                            .then(b => {{
+                                                let fr = new FileReader();
+                                                fr.onloadend = () => {{
+                                                    let b64 = fr.result.split(',')[1];
+                                                    if (b64) {{
+                                                        window.ipc.postMessage(JSON.stringify({{
+                                                            id: '__cache_img__',
+                                                            status: 200,
+                                                            result: {{ url: fullImgUrl, data: b64 }},
+                                                            error: ''
+                                                        }}));
+                                                    }}
+                                                }};
+                                                fr.readAsDataURL(b);
+                                            }})
+                                            .catch(() => {{}});
+                                    }}
+                                }}
+                            }}
                         }} catch (err) {{
                             window.ipc.postMessage(JSON.stringify({{
                                 id: '{}',
@@ -229,6 +287,28 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
             }
             Event::UserEvent(UserEvent::IpcResult(msg)) => {
                 if let Ok(ipc) = serde_json::from_str::<IpcMessage>(&msg) {
+                    if ipc.id == "__cache_img__" {
+                        if let Some(res) = ipc.result {
+                            if let (Some(url_val), Some(data_val)) = (res.get("url"), res.get("data")) {
+                                if let (Some(img_url), Some(b64_str)) = (url_val.as_str(), data_val.as_str()) {
+                                    if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64_str) {
+                                        let stem = cache_stem(img_url);
+                                        let ext = if img_url.contains(".webp") {
+                                            "webp"
+                                        } else if img_url.contains(".png") {
+                                            "png"
+                                        } else {
+                                            "jpg"
+                                        };
+                                        let cache_file = cache_dir.join(format!("{stem}.{ext}"));
+                                        let _ = fs::write(&cache_file, bytes);
+                                    }
+                                }
+                            }
+                        }
+                        return;
+                    }
+
                     if let Some(responder) = pending_responders.remove(&ipc.id) {
                         let res_str = ipc.result.map(|v| v.to_string());
                         let has_res = res_str.is_some();
