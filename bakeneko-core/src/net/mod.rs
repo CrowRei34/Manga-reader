@@ -208,6 +208,24 @@ impl ImageCache {
         let mut line = String::new();
         let _ = tokio::time::timeout(std::time::Duration::from_secs(20), buf_reader.read_line(&mut line)).await;
 
+        if !line.is_empty() {
+            if let Ok(val) = serde_json::from_str::<serde_json::Value>(&line) {
+                if let Some(res_str) = val.get("result").and_then(|v| v.as_str()) {
+                    if let Ok(res_obj) = serde_json::from_str::<serde_json::Value>(res_str) {
+                        if let Some(b64) = res_obj.get("data").and_then(|v| v.as_str()) {
+                            use base64::Engine;
+                            if let Ok(bytes) = base64::engine::general_purpose::STANDARD.decode(b64) {
+                                let ext = Self::sniff_ext(&bytes).unwrap_or("webp");
+                                let target_path = self.root.join(format!("{stem}.{ext}"));
+                                let _ = tokio::fs::write(&target_path, bytes).await;
+                                return Ok(target_path);
+                            }
+                        }
+                    }
+                }
+            }
+        }
+
         let path = self.cached_path(url);
         if path.exists() {
             return Ok(path);

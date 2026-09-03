@@ -333,13 +333,22 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                                     page.url.clone()
                                 }
                             };
-                            let path = match cache.get(&final_url, &headers).await {
-                                Ok(p) => Some(p),
-                                Err(e) => {
-                                    eprintln!("[reader] page {i}: descarga ERR {e}");
-                                    None
+                            let mut path = None;
+                            for attempt in 1..=3 {
+                                match cache.get(&final_url, &headers).await {
+                                    Ok(p) => {
+                                        path = Some(p);
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        if attempt == 3 {
+                                            eprintln!("[reader] page {i}: descarga ERR final {e}");
+                                        } else {
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(250 * attempt as u64)).await;
+                                        }
+                                    }
                                 }
-                            };
+                            }
                             let entry = match path {
                                 Some(p) => tokio::task::spawn_blocking(move || {
                                     fit_page_to_texture_limits(&p).map(|dims| (p, dims))
