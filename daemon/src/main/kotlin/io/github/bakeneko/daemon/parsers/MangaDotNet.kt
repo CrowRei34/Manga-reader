@@ -83,11 +83,17 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
         })
         .build()
 
-    fun getRequestHeaders(): Headers = Headers.Builder()
-        .set("User-Agent", USER_AGENT)
-        .set("Referer", "$BASE_URL/")
-        .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
-        .build()
+    fun getRequestHeaders(): Headers {
+        val b = Headers.Builder()
+            .set("User-Agent", USER_AGENT)
+            .set("Referer", "$BASE_URL/")
+            .set("Accept", "image/avif,image/webp,image/apng,image/svg+xml,image/*,*/*;q=0.8")
+        val cookie = getSavedCookies()
+        if (!cookie.isNullOrBlank()) {
+            b.set("Cookie", cookie)
+        }
+        return b.build()
+    }
 
     private fun apiHeaders(): Headers = Headers.Builder()
         .set("User-Agent", USER_AGENT)

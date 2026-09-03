@@ -94,13 +94,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let event_loop = EventLoopBuilder::<UserEvent>::with_user_event().build();
     let proxy = event_loop.create_proxy();
 
-    // Ventana 1x1 fuera de pantalla para que GTK inicialice el WebKit sin ventana visible en el escritorio
     let window = WindowBuilder::new()
         .with_title("Bakeneko Solver Engine")
-        .with_visible(true)
-        .with_decorations(false)
-        .with_inner_size(tao::dpi::LogicalSize::new(1.0, 1.0))
-        .with_position(tao::dpi::LogicalPosition::new(-10000.0, -10000.0))
+        .with_visible(false)
         .build(&event_loop)?;
 
     let bakeneko_dir = get_data_dir();
