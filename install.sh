@@ -25,11 +25,24 @@ if [ "${1:-}" != "" ] && [ "${1:-}" != "--update" ] && [ "${1:-}" != "update" ];
   exit 2
 fi
 
-command -v curl >/dev/null || { echo "ERROR: curl es necesario." >&2; exit 1; }
 command -v tar >/dev/null || { echo "ERROR: tar es necesario." >&2; exit 1; }
 
-RELEASE_JSON="$(curl --fail --location --retry 3 --proto '=https' --tlsv1.2 \
-  "https://api.github.com/repos/$REPO/releases/latest")"
+download() {
+  local url="$1"
+  local output="$2"
+  if command -v wget >/dev/null; then
+    wget --https-only --tries=3 --timeout=30 -O "$output" "$url"
+  elif command -v curl >/dev/null; then
+    curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$output" "$url"
+  else
+    echo "ERROR: se necesita wget o curl para descargar Bakeneko." >&2
+    exit 1
+  fi
+}
+
+RELEASE_JSON_FILE="$TMP_DIR/release.json"
+download "https://api.github.com/repos/$REPO/releases/latest" "$RELEASE_JSON_FILE"
+RELEASE_JSON="$(<"$RELEASE_JSON_FILE")"
 TAG="$(printf '%s' "$RELEASE_JSON" | sed -n 's/.*"tag_name": "\([^"]*\)".*/\1/p' | head -n1)"
 if [ -z "$TAG" ]; then
   echo "ERROR: GitHub no tiene un release publicado todavía." >&2
@@ -41,8 +54,8 @@ URL="https://github.com/$REPO/releases/download/$TAG/$ASSET"
 CHECKSUM_URL="https://github.com/$REPO/releases/download/$TAG/SHA256SUMS"
 ARCHIVE="$TMP_DIR/$ASSET"
 echo "Descargando Bakeneko desde GitHub…"
-curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$ARCHIVE" "$URL"
-curl --fail --location --retry 3 --proto '=https' --tlsv1.2 -o "$TMP_DIR/SHA256SUMS" "$CHECKSUM_URL"
+download "$URL" "$ARCHIVE"
+download "$CHECKSUM_URL" "$TMP_DIR/SHA256SUMS"
 grep "  $ASSET$" "$TMP_DIR/SHA256SUMS" > "$TMP_DIR/$ASSET.sha256"
 (cd "$TMP_DIR" && sha256sum -c "$ASSET.sha256")
 

@@ -43,7 +43,7 @@ Para instalar Bakeneko por primera vez o actualizarlo a la última versión
 publicada, cierra la aplicación y ejecuta desde Linux:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash
+wget -qO- https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash
 ```
 
 El mismo comando es seguro para actualizar: descarga el release más reciente,
@@ -51,7 +51,7 @@ valida su SHA-256 y cambia el enlace `current` a la nueva versión. También
 puedes indicar la intención explícitamente:
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --update
+wget -qO- https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --update
 ```
 
 Las versiones se guardan en `~/.local/share/bakeneko/releases/`; la biblioteca,
@@ -62,8 +62,10 @@ termine el workflow **Publicar paquete portátil** en GitHub Actions. Para
 retirar solo el programa (conservando la biblioteca):
 
 ```bash
-curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --uninstall
+wget -qO- https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --uninstall
 ```
+
+El instalador prefiere `wget`; si no está disponible, usa `curl` como respaldo.
 
 ## Actualizaciones del núcleo de parsers
 
