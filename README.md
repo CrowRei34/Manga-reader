@@ -37,19 +37,29 @@ Para generarlo localmente con un JDK 21:
 JRE_HOME=/ruta/al/jdk-21 ./package_cpack.sh 0.2.6
 ```
 
-## Instalación rápida
+## Instalación y actualización
 
-Para instalar o actualizar la última versión desde Linux:
+Para instalar Bakeneko por primera vez o actualizarlo a la última versión
+publicada, cierra la aplicación y ejecuta desde Linux:
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash
 ```
 
-El instalador descarga el paquete portátil desde GitHub, valida su SHA-256,
-crea el acceso `~/.local/bin/bakeneko` y registra Bakeneko en el menú de
-aplicaciones. No requiere `sudo` ni Java instalado. Ejecutarlo de nuevo
-actualiza a la última versión; para retirar solo el programa (conservando la
-biblioteca):
+El mismo comando es seguro para actualizar: descarga el release más reciente,
+valida su SHA-256 y cambia el enlace `current` a la nueva versión. También
+puedes indicar la intención explícitamente:
+
+```bash
+curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --update
+```
+
+Las versiones se guardan en `~/.local/share/bakeneko/releases/`; la biblioteca,
+el historial y la configuración permanecen intactos. El instalador actualiza
+`~/.local/bin/bakeneko` y el acceso del menú de aplicaciones, no requiere
+`sudo` ni Java instalado. Si todavía no hay un release publicado, espera a que
+termine el workflow **Publicar paquete portátil** en GitHub Actions. Para
+retirar solo el programa (conservando la biblioteca):
 
 ```bash
 curl -fsSL https://raw.githubusercontent.com/CrowRei34/Manga-reader/main/install.sh | bash -s -- --uninstall
