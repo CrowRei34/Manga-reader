@@ -178,12 +178,23 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     });
 
     let mut pending_responders: HashMap<String, Sender<SocketResponse>> = HashMap::new();
+    let mut last_active = Instant::now();
+    let idle_timeout = Duration::from_secs(180);
 
     event_loop.run(move |event, _, control_flow| {
-        *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(200));
+        *control_flow = ControlFlow::WaitUntil(Instant::now() + Duration::from_millis(500));
+
+        if last_active.elapsed() >= idle_timeout {
+            eprintln!("[solver] inactivo por 3 minutos. Cerrando solver para liberar memoria (~100MB)...");
+            let sock_path = get_solver_socket_path();
+            let _ = fs::remove_file(&sock_path);
+            *control_flow = ControlFlow::Exit;
+            return;
+        }
 
         match event {
             Event::UserEvent(UserEvent::Fetch { id, url, responder }) => {
+                last_active = Instant::now();
                 let fetch_path = if let Some(stripped) = url.strip_prefix(base_url) {
                     if stripped.is_empty() { "/" } else { stripped }
                 } else {

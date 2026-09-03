@@ -110,12 +110,20 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
     private fun startSolverDaemon() {
         try {
             val solverBin = System.getenv("BAKENEKO_SOLVER_PATH") ?: run {
-                val paths = listOf(
+                val execDir = try {
+                    java.io.File(MangaDotNet::class.java.protectionDomain.codeSource.location.toURI()).parentFile
+                } catch (_: Exception) { null }
+                val paths = mutableListOf(
                     "target/release/bakeneko-solver",
                     "target/debug/bakeneko-solver",
                     "bakeneko-solver",
                     "/usr/local/bin/bakeneko-solver",
                 )
+                if (execDir != null) {
+                    paths.add(java.io.File(execDir, "bakeneko-solver").absolutePath)
+                    paths.add(java.io.File(execDir.parentFile, "bakeneko-solver").absolutePath)
+                    paths.add(java.io.File(execDir.parentFile?.parentFile, "target/release/bakeneko-solver").absolutePath)
+                }
                 paths.firstOrNull { java.io.File(it).exists() } ?: "bakeneko-solver"
             }
             val pb = ProcessBuilder(solverBin)

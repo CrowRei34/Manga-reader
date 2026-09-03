@@ -131,27 +131,6 @@ impl DaemonClient {
             *g = Some(child);
         }
 
-        // Spawn headless bakeneko-solver daemon if binary exists
-        let exec_dir = std::env::current_exe().ok().and_then(|p| p.parent().map(|p| p.to_path_buf()));
-        let mut solver_candidates = Vec::new();
-        if let Some(dir) = &exec_dir {
-            solver_candidates.push(dir.join("bakeneko-solver"));
-        }
-        solver_candidates.push(PathBuf::from("target/release/bakeneko-solver"));
-        solver_candidates.push(PathBuf::from("target/debug/bakeneko-solver"));
-
-        if let Some(solver_bin) = solver_candidates.into_iter().find(|p| p.exists()) {
-            if let Ok(sc) = Command::new(&solver_bin)
-                .stdout(Stdio::null())
-                .stderr(Stdio::null())
-                .kill_on_drop(true)
-                .spawn()
-            {
-                let mut sg = self.solver_child.lock().unwrap();
-                *sg = Some(sc);
-            }
-        }
-
         let deadline = tokio::time::Instant::now() + Duration::from_secs(15);
         loop {
             if let Ok(s) = tokio::net::UnixStream::connect(&socket_path).await {
