@@ -349,7 +349,9 @@ version = "0.1.0"
 dependencies = [
  "anyhow",
  "async-trait",
+ "base64",
  "iced",
+ "libc",
  "reqwest",
  "rusqlite",
  "serde",
@@ -364,10 +366,16 @@ dependencies = [
 name = "bakeneko-solver"
 version = "0.1.0"
 dependencies = [
+ "base64",
+ "gdk",
+ "glib",
+ "gtk",
  "libc",
  "serde",
  "serde_json",
+ "sha2",
  "tao",
+ "webkit2gtk",
  "wry",
 ]
 
