@@ -22,8 +22,14 @@ use crate::features::library;
 use crate::features::reader;
 use crate::features::Screen;
 use crate::theme::palette;
-use crate::widgets::cover::{COVER_H, COVER_W};
 use crate::widgets::icon;
+
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Default)]
+pub enum DetailsTab {
+    #[default]
+    Info,
+    Chapters,
+}
 
 #[derive(Debug, Default)]
 pub struct State {
@@ -35,6 +41,8 @@ pub struct State {
     pub in_library: bool,
     /// Filtro de idioma de capítulos; `None` muestra todos.
     pub language_filter: Option<String>,
+    /// Pestaña activa en modo compacto (< 880px).
+    pub compact_tab: DetailsTab,
 }
 
 #[derive(Debug, Clone)]
@@ -47,6 +55,7 @@ pub enum Message {
     DownloadChapter(Chapter),
     DownloadAll,
     SetLanguage(Option<String>),
+    SetCompactTab(DetailsTab),
     Back,
 }
 
@@ -60,6 +69,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.details.manga = None;
             state.details.chapters.clear();
             state.details.language_filter = None;
+            state.details.compact_tab = DetailsTab::Info;
             state.details.in_library = state.library.iter().any(|manga| {
                 manga.source == mref.source && manga.url == mref.url
             });
@@ -204,6 +214,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         }
         Message::SetLanguage(language) => {
             state.details.language_filter = language;
+            Task::none()
+        }
+        Message::SetCompactTab(tab) => {
+            state.details.compact_tab = tab;
             Task::none()
         }
         Message::Back => {
@@ -436,9 +450,9 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
     let clean_description = format_synopsis(m.description.as_deref());
 
-    if state.window_size.0 >= 960.0 {
-        let left_width = (state.window_size.0 * 0.36).clamp(380.0, 460.0);
-        let cover_w: f32 = if left_width < 420.0 { 125.0 } else { 140.0 };
+    if state.window_size.0 >= 880.0 {
+        let left_width = (state.window_size.0 * 0.36).clamp(360.0, 460.0);
+        let cover_w: f32 = if left_width < 400.0 { 120.0 } else { 135.0 };
         let cover_h = (cover_w / 0.69).round();
 
         let left_buttons = column![
@@ -600,101 +614,178 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .height(Length::Fill)
         .into()
     } else {
-        let title_block = column![
-            text(m.title.clone()).size(24).color(palette::TEXT),
-            text(m.authors.first().cloned().unwrap_or_default())
-                .size(13)
-                .color(palette::TEXT_MUTED),
-            row![
-                icon::glyph(icon::DESCRIPTION, 14, accent),
-                text("Sinopsis").size(14).color(accent),
-            ].spacing(6).align_y(iced::Alignment::Center),
-            container(
-                scrollable(
-                    container(
-                        text(clean_description)
-                            .size(13)
-                            .line_height(iced::widget::text::LineHeight::Relative(1.5))
-                            .color(palette::TEXT)
-                    )
-                    .padding(iced::Padding {
-                        top: 4.0,
-                        right: 12.0,
-                        bottom: 6.0,
-                        left: 4.0,
-                    })
-                )
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
-                .height(Length::Fixed(130.0))
+        // Modo compacto (< 880px): Pestañas "Información" y "Capítulos"
+        let info_active = state.details.compact_tab == DetailsTab::Info;
+        let chapters_active = state.details.compact_tab == DetailsTab::Chapters;
+
+        let info_label = if state.window_size.0 < 540.0 { "Info" } else { "Información" };
+        let caps_label = if state.window_size.0 < 540.0 {
+            format!("Caps ({})", filtered_chapters.len())
+        } else {
+            format!("Capítulos ({})", filtered_chapters.len())
+        };
+
+        let tab_selector = row![
+            button(
+                row![
+                    icon::glyph(icon::DESCRIPTION, 14, if info_active { palette::ON_ACCENT } else { palette::TEXT_MUTED }),
+                    text(info_label).size(12).color(if info_active { palette::ON_ACCENT } else { palette::TEXT_MUTED }),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center)
             )
-            .style(crate::theme::card_container)
-            .padding(4)
-            .width(Length::Fill),
+            .on_press(AppMessage::Details(Message::SetCompactTab(DetailsTab::Info)))
+            .style(crate::theme::chip_button(info_active))
+            .padding([5, 12]),
+            button(
+                row![
+                    icon::glyph(icon::MENU_BOOK, 14, if chapters_active { palette::ON_ACCENT } else { palette::TEXT_MUTED }),
+                    text(caps_label).size(12).color(if chapters_active { palette::ON_ACCENT } else { palette::TEXT_MUTED }),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center)
+            )
+            .on_press(AppMessage::Details(Message::SetCompactTab(DetailsTab::Chapters)))
+            .style(crate::theme::chip_button(chapters_active))
+            .padding([5, 12]),
         ]
         .spacing(8)
+        .align_y(iced::Alignment::Center);
+
+        let compact_top_bar = row![
+            back,
+            iced::widget::horizontal_space(),
+            tab_selector,
+        ]
+        .spacing(10)
+        .align_y(iced::Alignment::Center)
         .width(Length::Fill);
 
-        let buttons_row = row![
+        let cover_w: f32 = if state.window_size.0 < 540.0 { 95.0 } else { 115.0 };
+        let cover_h = (cover_w / 0.69).round();
+
+        let cover_card = container(make_cover(cover_w, cover_h))
+            .style(crate::theme::card_container)
+            .padding(4);
+
+        let info_buttons = column![
             button(
                 row![
                     icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
-                    text("Leer Ahora").size(14).color(palette::ON_ACCENT),
+                    text("Leer Ahora").size(13).color(palette::ON_ACCENT),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
             )
             .on_press(AppMessage::Details(Message::ReadNow))
             .style(crate::theme::primary_button)
-            .padding([10, 18]),
+            .padding([8, 14])
+            .width(Length::Fill),
             button(
                 row![
                     icon::glyph(icon::BOOKMARK, 16, accent),
                     text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
-                        .size(14).color(accent),
+                        .size(13).color(accent),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
             )
             .on_press(AppMessage::Details(Message::ToggleLibrary))
             .style(crate::theme::ghost_button)
-            .padding([10, 18]),
-        ]
-        .spacing(12);
-
-        let header_row: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
-            container(
-                column![
-                    container(make_cover(COVER_W * 1.3, COVER_H * 1.3))
-                        .style(crate::theme::card_container)
-                        .padding(6),
-                    column![title_block, buttons_row].spacing(14),
-                ]
-                .spacing(18)
-                .align_x(iced::Alignment::Center),
-            )
-            .style(crate::theme::panel_container)
-            .padding(14)
-            .width(Length::Fill)
-            .clip(true)
-            .into()
-        } else {
-            container(
+            .padding([8, 14])
+            .width(Length::Fill),
+            button(
                 row![
-                    container(make_cover(COVER_W * 1.3, COVER_H * 1.3))
-                        .style(crate::theme::card_container)
-                        .padding(6),
-                    column![title_block, buttons_row].spacing(14),
+                    icon::glyph(icon::MENU_BOOK, 16, palette::TEXT),
+                    text(format!("Ver Capítulos ({})", filtered_chapters.len()))
+                        .size(13).color(palette::TEXT),
                 ]
-                .spacing(22)
-                .align_y(iced::Alignment::Start),
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
             )
-            .style(crate::theme::panel_container)
-            .padding(18)
+            .on_press(AppMessage::Details(Message::SetCompactTab(DetailsTab::Chapters)))
+            .style(crate::theme::ghost_button)
+            .padding([8, 14])
+            .width(Length::Fill),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+
+        let top_meta = column![
+            text(m.title.clone()).size(18).color(palette::TEXT),
+            text(m.authors.first().cloned().unwrap_or_default())
+                .size(12)
+                .color(palette::TEXT_MUTED),
+            text(format!("Fuente: {}", m.source))
+                .size(11)
+                .color(palette::TEXT_DIM),
+            iced::widget::Space::with_height(Length::Fixed(4.0)),
+            info_buttons,
+        ]
+        .spacing(6)
+        .width(Length::Fill);
+
+        let top_header = row![
+            cover_card,
+            top_meta,
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Start)
+        .width(Length::Fill);
+
+        let synopsis_header = row![
+            icon::glyph(icon::DESCRIPTION, 14, accent),
+            text("Sinopsis").size(14).color(accent),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center);
+
+        let synopsis_card = container(
+            scrollable(
+                container(
+                    text(clean_description)
+                        .size(13)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.5))
+                        .color(palette::TEXT)
+                )
+                .padding(iced::Padding {
+                    top: 6.0,
+                    right: 12.0,
+                    bottom: 8.0,
+                    left: 6.0,
+                })
+            )
+            .style(crate::theme::scrollable_style)
             .width(Length::Fill)
-            .clip(true)
-            .into()
-        };
+            .height(Length::Fill),
+        )
+        .style(crate::theme::card_container)
+        .padding(6)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        let synopsis_box = column![
+            synopsis_header,
+            synopsis_card,
+        ]
+        .spacing(6)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        let info_panel = container(
+            column![
+                top_header,
+                synopsis_box,
+            ]
+            .spacing(14)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
+        .style(crate::theme::panel_container)
+        .padding(14)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .clip(true);
 
         let chapter_list = scrollable(
             Column::with_children(chapter_rows)
@@ -731,12 +822,16 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .height(Length::Fill)
         .clip(true);
 
+        let active_content: Element<'_, AppMessage> = match state.details.compact_tab {
+            DetailsTab::Info => info_panel.into(),
+            DetailsTab::Chapters => chapters_panel.into(),
+        };
+
         column![
-            back,
-            header_row,
-            chapters_panel,
+            compact_top_bar,
+            active_content,
         ]
-        .spacing(12)
+        .spacing(10)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
