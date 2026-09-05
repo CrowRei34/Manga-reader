@@ -368,74 +368,102 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         );
     }
 
-    if state.window_size.0 >= 1000.0 {
+    let clean_description = format_synopsis(m.description.as_deref());
+
+    if state.window_size.0 >= 960.0 {
+        let left_width = (state.window_size.0 * 0.36).clamp(380.0, 460.0);
+        let cover_w: f32 = if left_width < 420.0 { 125.0 } else { 140.0 };
+        let cover_h = (cover_w / 0.69).round();
+
         let left_buttons = column![
             button(
                 row![
                     icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
-                    text("Leer Ahora").size(14).color(palette::ON_ACCENT),
+                    text("Leer Ahora").size(13).color(palette::ON_ACCENT),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
             )
             .on_press(AppMessage::Details(Message::ReadNow))
             .style(crate::theme::primary_button)
-            .padding([10, 16])
+            .padding([9, 14])
             .width(Length::Fill),
             button(
                 row![
                     icon::glyph(icon::BOOKMARK, 16, accent),
                     text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
-                        .size(14).color(accent),
+                        .size(13).color(accent),
                 ]
                 .spacing(8)
                 .align_y(iced::Alignment::Center),
             )
             .on_press(AppMessage::Details(Message::ToggleLibrary))
             .style(crate::theme::ghost_button)
-            .padding([10, 16])
+            .padding([9, 14])
             .width(Length::Fill),
         ]
         .spacing(8)
         .width(Length::Fill);
 
+        let cover_card = container(make_cover(cover_w, cover_h))
+            .style(crate::theme::card_container)
+            .padding(4);
+
+        let top_meta = column![
+            text(m.title.clone()).size(17).color(palette::TEXT),
+            text(m.authors.first().cloned().unwrap_or_default())
+                .size(12)
+                .color(palette::TEXT_MUTED),
+            iced::widget::Space::with_height(Length::Fixed(4.0)),
+            left_buttons,
+        ]
+        .spacing(6)
+        .width(Length::Fill);
+
+        let top_header = row![
+            cover_card,
+            top_meta,
+        ]
+        .spacing(12)
+        .align_y(iced::Alignment::Start)
+        .width(Length::Fill);
+
+        let synopsis_box = column![
+            text("Sinopsis").size(14).color(accent),
+            scrollable(
+                container(
+                    text(clean_description.clone())
+                        .size(13)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.45))
+                        .color(palette::TEXT)
+                )
+                .padding(iced::Padding {
+                    top: 2.0,
+                    right: 12.0,
+                    bottom: 8.0,
+                    left: 2.0,
+                })
+            )
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        ]
+        .spacing(6)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
         let left_info = container(
             column![
-                container(make_cover(190.0, 270.0))
-                    .style(crate::theme::card_container)
-                    .padding(5)
-                    .center_x(Length::Fill),
-                column![
-                    text(m.title.clone()).size(19).color(palette::TEXT),
-                    text(m.authors.first().cloned().unwrap_or_default())
-                        .size(13)
-                        .color(palette::TEXT_MUTED),
-                ]
-                .spacing(3)
-                .width(Length::Fill),
-                left_buttons,
-                column![
-                    text("Sinopsis").size(14).color(accent),
-                    scrollable(
-                        text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
-                            .size(13)
-                            .color(palette::TEXT_MUTED)
-                    )
-                    .style(crate::theme::scrollable_style)
-                    .width(Length::Fill)
-                    .height(Length::Fill)
-                ]
-                .spacing(6)
-                .width(Length::Fill)
-                .height(Length::Fill),
+                top_header,
+                synopsis_box,
             ]
-            .spacing(12)
+            .spacing(14)
             .width(Length::Fill)
             .height(Length::Fill)
         )
         .style(crate::theme::panel_container)
-        .padding(16)
-        .width(Length::Fixed(360.0))
+        .padding(14)
+        .width(Length::Fixed(left_width))
         .height(Length::Fill)
         .clip(true);
 
@@ -444,7 +472,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             left_info,
         ]
         .spacing(12)
-        .width(Length::Fixed(360.0))
+        .width(Length::Fixed(left_width))
         .height(Length::Fill);
 
         let right_col = column![
@@ -492,15 +520,24 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .into()
     } else {
         let title_block = column![
-            text(m.title.clone()).size(26).color(palette::TEXT),
+            text(m.title.clone()).size(24).color(palette::TEXT),
             text(m.authors.first().cloned().unwrap_or_default())
-                .size(14)
+                .size(13)
                 .color(palette::TEXT_MUTED),
-            text("Sinopsis").size(15).color(accent),
+            text("Sinopsis").size(14).color(accent),
             scrollable(
-                text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
-                    .size(13)
-                    .color(palette::TEXT_MUTED),
+                container(
+                    text(clean_description)
+                        .size(13)
+                        .line_height(iced::widget::text::LineHeight::Relative(1.45))
+                        .color(palette::TEXT)
+                )
+                .padding(iced::Padding {
+                    top: 2.0,
+                    right: 12.0,
+                    bottom: 6.0,
+                    left: 2.0,
+                })
             )
             .style(crate::theme::scrollable_style)
             .width(Length::Fill)
@@ -672,6 +709,43 @@ fn chapter_subtitle(chapter: &Chapter) -> Option<String> {
         .iter()
         .any(|prefix| lower.starts_with(prefix));
     (!is_generic).then(|| title.to_string())
+}
+
+fn format_synopsis(raw: Option<&str>) -> String {
+    let Some(text) = raw else {
+        return "Sin descripción".to_string();
+    };
+    let trimmed = text.trim();
+    if trimmed.is_empty() {
+        return "Sin descripción".to_string();
+    }
+    let cleaned = trimmed
+        .replace("<br>", "\n")
+        .replace("<br/>", "\n")
+        .replace("<br />", "\n")
+        .replace("</p>", "\n\n")
+        .replace("<p>", "")
+        .replace("&quot;", "\"")
+        .replace("&#039;", "'")
+        .replace("&#39;", "'")
+        .replace("&amp;", "&")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">");
+
+    let mut result = String::with_capacity(cleaned.len());
+    let mut consecutive_newlines = 0;
+    for ch in cleaned.chars() {
+        if ch == '\n' {
+            consecutive_newlines += 1;
+            if consecutive_newlines <= 2 {
+                result.push(ch);
+            }
+        } else {
+            consecutive_newlines = 0;
+            result.push(ch);
+        }
+    }
+    result.trim().to_string()
 }
 
 #[cfg(test)]

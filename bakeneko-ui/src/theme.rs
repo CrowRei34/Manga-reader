@@ -552,8 +552,8 @@ pub fn divider(theme: &Theme) -> container::Style {
     }
 }
 
-/// Barra de desplazamiento común: discreta en reposo, visible al interactuar
-/// y con el mismo lenguaje visual sepia que el resto de la aplicación.
+/// Barra de desplazamiento común: siempre visible de manera sutil para mantener
+/// el contenido centrado, y destacada al interactuar con el color de acento.
 pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
     let colors = ui_colors(theme);
     let active = matches!(
@@ -561,9 +561,7 @@ pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable
         scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. }
     );
     let rail = scrollable::Rail {
-        // La barra se mantiene invisible en reposo; sólo aparece al pasar el
-        // cursor o arrastrarla, evitando que tape chips y portadas.
-        background: Some(Color { a: 0.0, ..colors.sidebar }.into()),
+        background: Some(Color { a: 0.15, ..colors.sidebar }.into()),
         border: Border {
             color: Color::TRANSPARENT,
             width: 0.0,
@@ -571,14 +569,14 @@ pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable
         },
         scroller: scrollable::Scroller {
             color: if active {
-                Color { a: 0.78, ..colors.accent }
+                Color { a: 0.85, ..colors.accent }
             } else {
-                Color { a: 0.0, ..colors.dim }
+                Color { a: 0.35, ..colors.muted }
             },
             border: Border {
                 color: Color::TRANSPARENT,
                 width: 0.0,
-                radius: radius(0.0),
+                radius: radius(2.0),
             },
         },
     };
