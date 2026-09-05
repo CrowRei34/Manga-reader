@@ -219,6 +219,32 @@ class ZonaTmo(private val httpClient: OkHttpClient) {
         }
     }
 
+    private fun extractCoverUrl(el: org.jsoup.nodes.Element): String? {
+        val img = el.selectFirst("img.cover-bg-img, img.book-thumbnail, .book-thumbnail img, .book-thumbnail")
+        var rawUrl = (if (img?.tagName() == "img") (img.absUrl("src").takeIf { it.isNotBlank() } ?: img.attr("src")) else null)?.takeIf { it.isNotBlank() }
+            ?: img?.attr("data-src")?.takeIf { it.isNotBlank() }
+            ?: el.selectFirst(".thumbnail, .book-thumbnail")?.attr("data-bg")?.takeIf { it.isNotBlank() }
+
+        if (rawUrl.isNullOrBlank()) {
+            val style = el.selectFirst(".thumbnail, .book-thumbnail")?.attr("style") ?: ""
+            val bgMatch = """url\(['"]?(.*?)['"]?\)""".toRegex().find(style)?.groupValues?.get(1)?.takeIf { it.isNotBlank() }
+            rawUrl = bgMatch
+        }
+
+        if (rawUrl.isNullOrBlank()) {
+            rawUrl = el.selectFirst("img")?.absUrl("src")?.takeIf { it.isNotBlank() }
+        }
+
+        if (rawUrl.isNullOrBlank()) return null
+
+        return when {
+            rawUrl.startsWith("//") -> "https:$rawUrl"
+            rawUrl.startsWith("/") -> "$BASE_URL$rawUrl"
+            rawUrl.startsWith("http://") || rawUrl.startsWith("https://") -> rawUrl
+            else -> "$BASE_URL/$rawUrl"
+        }
+    }
+
     suspend fun catalog(offset: Int, query: String?, categories: List<String>): List<MangaDto> {
         val hasQuery = !query.isNullOrBlank()
         if (hasQuery && (query!!.startsWith("http://") || query.startsWith("https://"))) {
@@ -252,9 +278,7 @@ class ZonaTmo(private val httpClient: OkHttpClient) {
                 ?: a.attr("title").trim()
             if (title.isBlank()) continue
 
-            val coverUrl = el.selectFirst("div.thumbnail[data-bg]")?.attr("data-bg")?.takeIf { it.isNotBlank() }
-                ?: el.selectFirst("img.cover-bg-img")?.absUrl("src")?.takeIf { it.isNotBlank() }
-                ?: el.selectFirst("img")?.absUrl("src")?.takeIf { it.isNotBlank() }
+            val coverUrl = extractCoverUrl(el)
 
             val mature = el.selectFirst(".book-meta-mature") != null
             val scoreText = el.selectFirst("span.score span")?.text()?.trim()
@@ -297,10 +321,7 @@ class ZonaTmo(private val httpClient: OkHttpClient) {
             ?: doc.selectFirst("h2.element-title")?.text()?.trim()?.takeIf { it.isNotBlank() }
             ?: manga.title
 
-        val coverUrl = doc.selectFirst("div.book-thumbnail[data-bg]")?.attr("data-bg")?.takeIf { it.isNotBlank() }
-            ?: doc.selectFirst("div.book-thumbnail img")?.absUrl("src")?.takeIf { it.isNotBlank() }
-            ?: doc.selectFirst("img.cover-bg-img")?.absUrl("src")?.takeIf { it.isNotBlank() }
-            ?: manga.coverUrl
+        val coverUrl = extractCoverUrl(doc) ?: manga.coverUrl
 
         val desc = doc.selectFirst("p.element-description, div.element-description")?.text()?.trim()
             ?: manga.description

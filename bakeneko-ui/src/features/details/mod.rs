@@ -84,6 +84,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 source: mref.source,
                 url: mref.url,
                 title: mref.title,
+                cover_url: mref.cover_url.clone(),
+                large_cover_url: mref.cover_url,
                 ..Default::default()
             };
             if let Some(d) = d {
@@ -95,7 +97,13 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::none()
             }
         }
-        Message::Fetched(Ok(manga)) => {
+        Message::Fetched(Ok(mut manga)) => {
+            if manga.cover_url.is_none() {
+                manga.cover_url = manga.large_cover_url.clone();
+            }
+            if manga.large_cover_url.is_none() {
+                manga.large_cover_url = manga.cover_url.clone();
+            }
             state.details.chapters = manga.chapters.clone();
             state.details.manga = Some(manga.clone());
             state.details.loading = false;

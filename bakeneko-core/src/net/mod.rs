@@ -61,9 +61,29 @@ impl ImageCache {
     fn sniff_ext(bytes: &[u8]) -> Option<&'static str> {
         if bytes.starts_with(&[0xFF, 0xD8, 0xFF]) { return Some("jpg"); }
         if bytes.starts_with(&[0x89, 0x50, 0x4E, 0x47]) { return Some("png"); }
-        if bytes.len() > 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" { return Some("webp"); }
+        if bytes.len() >= 12 && &bytes[0..4] == b"RIFF" && &bytes[8..12] == b"WEBP" { return Some("webp"); }
         if bytes.starts_with(b"GIF8") { return Some("gif"); }
         None
+    }
+
+    fn fix_extension_if_needed(path: &std::path::Path) -> PathBuf {
+        if let Ok(mut file) = std::fs::File::open(path) {
+            use std::io::Read;
+            let mut buf = [0u8; 16];
+            if let Ok(n) = file.read(&mut buf) {
+                if let Some(real_ext) = Self::sniff_ext(&buf[..n]) {
+                    if let Some(current_ext) = path.extension().and_then(|e| e.to_str()) {
+                        let cur = if current_ext.eq_ignore_ascii_case("jpeg") { "jpg" } else { current_ext };
+                        if !cur.eq_ignore_ascii_case(real_ext) {
+                            let new_path = path.with_extension(real_ext);
+                            let _ = std::fs::rename(path, &new_path);
+                            return new_path;
+                        }
+                    }
+                }
+            }
+        }
+        path.to_path_buf()
     }
 
     pub fn cached_path(&self, url: &str) -> PathBuf {
@@ -73,21 +93,15 @@ impl ImageCache {
             url.to_string()
         };
         let stem = Self::stem(&clean_url);
-        let ext = Self::url_ext(&clean_url).unwrap_or("jpg");
-        let direct_path = self.root.join(format!("{stem}.{ext}"));
-        if direct_path.exists() {
-            return direct_path;
-        }
-        // Fallback si fue guardado con otra extensión tras sniffing
-        for known_ext in ["jpg", "png", "webp", "gif"] {
-            if known_ext != ext {
-                let p = self.root.join(format!("{stem}.{known_ext}"));
-                if p.exists() {
-                    return p;
-                }
+        // Comprobar primero si ya existe con cualquiera de las extensiones conocidas y reparar si difiere
+        for known_ext in ["webp", "png", "jpg", "gif"] {
+            let p = self.root.join(format!("{stem}.{known_ext}"));
+            if p.exists() {
+                return Self::fix_extension_if_needed(&p);
             }
         }
-        direct_path
+        let ext = Self::url_ext(&clean_url).unwrap_or("jpg");
+        self.root.join(format!("{stem}.{ext}"))
     }
 
     pub async fn get(&self, url: &str, headers: &HashMap<String, String>) -> Result<PathBuf, NetError> {
@@ -154,7 +168,6 @@ impl ImageCache {
         let mut file = tokio::fs::File::create(&tmp_path).await?;
         
         let mut sniff_buffer = Vec::with_capacity(32);
-        let mut ext = Self::url_ext(&normalized_url);
         
         use tokio::io::AsyncWriteExt;
         while let Some(chunk) = resp.chunk().await? {
@@ -162,16 +175,15 @@ impl ImageCache {
                 let needed = 32 - sniff_buffer.len();
                 let take = needed.min(chunk.len());
                 sniff_buffer.extend_from_slice(&chunk[..take]);
-                if ext.is_none() {
-                    ext = Self::sniff_ext(&sniff_buffer);
-                }
             }
             file.write_all(&chunk).await?;
         }
         file.flush().await?;
         drop(file);
 
-        let final_ext = ext.or_else(|| Self::sniff_ext(&sniff_buffer)).unwrap_or("jpg");
+        let final_ext = Self::sniff_ext(&sniff_buffer)
+            .or_else(|| Self::url_ext(&normalized_url))
+            .unwrap_or("jpg");
         let final_path = self.root.join(format!("{stem}.{final_ext}"));
         tokio::fs::rename(&tmp_path, &final_path).await?;
         Ok(final_path)
