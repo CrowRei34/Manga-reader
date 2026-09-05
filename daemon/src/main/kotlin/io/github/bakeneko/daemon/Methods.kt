@@ -13,6 +13,7 @@ import kotlinx.serialization.json.put
 import kotlinx.serialization.json.decodeFromJsonElement
 import kotlinx.serialization.json.encodeToJsonElement
 import io.github.bakeneko.daemon.parsers.MangaDotNet
+import io.github.bakeneko.daemon.parsers.ZonaTmo
 import io.github.landwarderer.futon.parsers.model.MangaListFilter
 import io.github.landwarderer.futon.parsers.model.MangaParserSource
 import io.github.landwarderer.futon.parsers.model.SortOrder
@@ -29,6 +30,7 @@ class Methods(private val ctx: DaemonLoaderContext) {
 
     private val json = Json { ignoreUnknownKeys = true; encodeDefaults = false }
     private val mangaDotNet = MangaDotNet(ctx.httpClient)
+    private val zonaTmo = ZonaTmo(ctx.httpClient)
 
     /** Devuelve el JsonElement del `result`. Lanza [RpcError] en fallo. */
     suspend fun invoke(method: String, params: JsonObject?): JsonElement = when (method) {
@@ -52,6 +54,8 @@ class Methods(private val ctx: DaemonLoaderContext) {
                 ?: emptyList()
             if (sourceId == MangaDotNet.SOURCE_ID) {
                 json.encodeToJsonElement(mangaDotNet.catalog(offset, query, categories))
+            } else if (sourceId == ZonaTmo.SOURCE_ID) {
+                json.encodeToJsonElement(zonaTmo.catalog(offset, query, categories))
             } else {
                 val source = params.source()
                 catalog(source, offset, query, categories)
@@ -63,6 +67,8 @@ class Methods(private val ctx: DaemonLoaderContext) {
             val manga = params.reqObj("manga").decode<MangaDto>()
             if (sourceId == MangaDotNet.SOURCE_ID) {
                 json.encodeToJsonElement(mangaDotNet.details(manga))
+            } else if (sourceId == ZonaTmo.SOURCE_ID) {
+                json.encodeToJsonElement(zonaTmo.details(manga))
             } else {
                 val source = params.source()
                 json.encodeToJsonElement(details(source, manga))
@@ -74,6 +80,8 @@ class Methods(private val ctx: DaemonLoaderContext) {
             val chapter = params.reqObj("chapter").decode<ChapterDto>()
             if (sourceId == MangaDotNet.SOURCE_ID) {
                 json.encodeToJsonElement(mangaDotNet.pages(chapter))
+            } else if (sourceId == ZonaTmo.SOURCE_ID) {
+                json.encodeToJsonElement(zonaTmo.pages(chapter))
             } else {
                 val source = params.source()
                 json.encodeToJsonElement(pages(source, chapter))
@@ -83,7 +91,7 @@ class Methods(private val ctx: DaemonLoaderContext) {
         "page.url" -> {
             val sourceId = params.sourceId()
             val page = params.reqObj("page").decode<PageDto>()
-            if (sourceId == MangaDotNet.SOURCE_ID) {
+            if (sourceId == MangaDotNet.SOURCE_ID || sourceId == ZonaTmo.SOURCE_ID) {
                 JsonPrimitive(page.url)
             } else {
                 val source = params.source()
@@ -95,6 +103,8 @@ class Methods(private val ctx: DaemonLoaderContext) {
             val sourceId = params.sourceId()
             val headers = if (sourceId == MangaDotNet.SOURCE_ID) {
                 mangaDotNet.getRequestHeaders()
+            } else if (sourceId == ZonaTmo.SOURCE_ID) {
+                zonaTmo.getRequestHeaders()
             } else {
                 val source = params.source()
                 getParser(source).getRequestHeaders()
