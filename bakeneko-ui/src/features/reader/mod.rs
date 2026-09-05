@@ -118,6 +118,9 @@ pub struct State {
     pub scroll_y: f32,
     /// Índice de página actual (modo `Paginated`).
     pub current_page: usize,
+    /// Página objetivo hacia la que se está haciendo snap de scroll (evita que un evento
+    /// 0.0 espurio de Iced durante el cambio de modo resetee la página).
+    pub pending_scroll_to_page: Option<usize>,
     /// `true` mientras se cargan/resuelven/descargan las páginas.
     pub loading: bool,
     /// Identifica la carga de capítulo activa. Las respuestas de cargas
@@ -199,6 +202,45 @@ fn chapter_idx(ch: &Chapter) -> i32 {
     ch.number as i32
 }
 
+fn page_relative_offset(state: &AppState, target_page: usize) -> f32 {
+    let total = state.reader.page_paths.len();
+    if total == 0 || target_page == 0 {
+        return 0.0;
+    }
+    let target_page = target_page.min(total - 1);
+    let display_w = state.window_size.0.min(900.0).max(300.0);
+    let viewport_h = state.window_size.1.max(400.0);
+    let mut total_h = 0.0f32;
+    let mut page_top = 0.0f32;
+    let mut target_ph = viewport_h;
+
+    for (i, &(w, h)) in state.reader.page_dims.iter().enumerate() {
+        let ph = if w > 0 {
+            (h as f32 * display_w / w as f32).round().max(100.0)
+        } else {
+            viewport_h
+        };
+        if i < target_page {
+            page_top += ph + 4.0;
+        } else if i == target_page {
+            target_ph = ph;
+        }
+        total_h += ph + 4.0;
+    }
+
+    let target_scroll_px = if target_ph < viewport_h * 0.5 {
+        (page_top + target_ph * 0.5 - viewport_h * 0.5).max(0.0)
+    } else {
+        page_top
+    };
+
+    if total_h > viewport_h {
+        (target_scroll_px / (total_h - viewport_h)).clamp(0.0, 1.0)
+    } else {
+        (target_page as f32 / total as f32).clamp(0.0, 1.0)
+    }
+}
+
 /// Reducer del feature Reader.
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
     match msg {
@@ -225,6 +267,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.reader.page_dims.clear();
             state.reader.headers.clear();
             state.reader.scroll_y = 0.0;
+            state.reader.pending_scroll_to_page = None;
             // Recupera la última página únicamente si corresponde al mismo capítulo.
             let manga = state.details.manga.clone();
             let saved_page = match (&state.db, &manga) {
@@ -239,6 +282,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 _ => 0,
             };
             state.reader.current_page = saved_page;
+            if saved_page > 0 && state.reader.read_mode == ReadMode::Webtoon {
+                state.reader.pending_scroll_to_page = Some(saved_page);
+            }
             state.reader.loading = true;
             state.reader.error = None;
             // La barra se muestra al entrar (descubrible); tap la esconde.
@@ -322,7 +368,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.reader.page_paths = vec![PathBuf::new(); page_count];
             state.reader.page_handles = vec![None; page_count];
             state.reader.page_dims = vec![(0, 0); page_count];
-            let restored_offset = state.reader.current_page as f32 / page_count as f32;
+            let restored_offset = page_relative_offset(state, state.reader.current_page);
             // Descarga concurrente controlada (buffer_unordered de 4 páginas a la vez)
             // para no saturar Tokio, la red ni la I/O de disco.
             let daemon = state.daemon.clone();
@@ -429,8 +475,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 state.reader.loading = false;
             }
             if was_loading && !state.reader.loading && state.reader.read_mode == ReadMode::Webtoon && state.reader.current_page > 0 {
-                let total = state.reader.page_paths.len().max(1);
-                let offset = state.reader.current_page as f32 / total as f32;
+                let target_page = state.reader.current_page;
+                let offset = page_relative_offset(state, target_page);
+                state.reader.scroll_y = offset;
+                state.reader.pending_scroll_to_page = Some(target_page);
                 return scrollable::snap_to(
                     scrollable::Id::new("reader-pages"),
                     scrollable::RelativeOffset { x: 0.0, y: offset },
@@ -490,10 +538,21 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                     ((y * (total as f32)).floor() as usize).min(total - 1)
                 };
 
-                if page_idx != state.reader.current_page {
-                    state.reader.current_page = page_idx;
+                if let Some(target) = state.reader.pending_scroll_to_page {
+                    if page_idx == target || (y - state.reader.scroll_y).abs() < 0.01 {
+                        state.reader.pending_scroll_to_page = None;
+                        state.reader.scroll_y = y;
+                        if page_idx != state.reader.current_page {
+                            state.reader.current_page = page_idx;
+                            update_history(state);
+                        }
+                    }
+                } else {
                     state.reader.scroll_y = y;
-                    update_history(state);
+                    if page_idx != state.reader.current_page {
+                        state.reader.current_page = page_idx;
+                        update_history(state);
+                    }
                 }
             }
             Task::none()
@@ -502,9 +561,20 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
 
 
 
+
         Message::PrevPage => {
             state.reader.current_page = state.reader.current_page.saturating_sub(1);
             update_history(state);
+            if state.reader.read_mode == ReadMode::Webtoon {
+                let target_page = state.reader.current_page;
+                let offset = page_relative_offset(state, target_page);
+                state.reader.scroll_y = offset;
+                state.reader.pending_scroll_to_page = Some(target_page);
+                return scrollable::snap_to(
+                    scrollable::Id::new("reader-pages"),
+                    scrollable::RelativeOffset { x: 0.0, y: offset },
+                );
+            }
             Task::none()
         }
         Message::NextPage => {
@@ -512,6 +582,16 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 state.reader.current_page += 1;
             }
             update_history(state);
+            if state.reader.read_mode == ReadMode::Webtoon {
+                let target_page = state.reader.current_page;
+                let offset = page_relative_offset(state, target_page);
+                state.reader.scroll_y = offset;
+                state.reader.pending_scroll_to_page = Some(target_page);
+                return scrollable::snap_to(
+                    scrollable::Id::new("reader-pages"),
+                    scrollable::RelativeOffset { x: 0.0, y: offset },
+                );
+            }
             Task::none()
         }
         Message::NextChapter => {
@@ -538,6 +618,23 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             };
             state.settings.reader_mode = state.reader.read_mode.setting().into();
             let _ = bakeneko_core::settings::save(&state.settings);
+
+            if state.reader.read_mode == ReadMode::Webtoon {
+                let target_page = state.reader.current_page;
+                let relative_y = page_relative_offset(state, target_page);
+                state.reader.scroll_y = relative_y;
+                if target_page > 0 {
+                    state.reader.pending_scroll_to_page = Some(target_page);
+                } else {
+                    state.reader.pending_scroll_to_page = None;
+                }
+                return scrollable::snap_to(
+                    scrollable::Id::new("reader-pages"),
+                    scrollable::RelativeOffset { x: 0.0, y: relative_y },
+                );
+            } else {
+                state.reader.pending_scroll_to_page = None;
+            }
             Task::none()
         }
         Message::ToggleFilterPanel => {
