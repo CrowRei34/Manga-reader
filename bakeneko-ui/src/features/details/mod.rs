@@ -240,16 +240,19 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     };
 
     let make_cover = |w: f32, h: f32| -> Element<'_, AppMessage> {
-        match m
-            .cover_url
-            .as_ref()
-            .and_then(|u| state.covers.get(u))
-        {
-            Some(path) => image(image::Handle::from_path(path.clone()))
-                .width(Length::Fixed(w))
-                .height(Length::Fixed(h))
-                .content_fit(ContentFit::Cover)
-                .into(),
+        let cover_opt = m.cover_url.as_ref().or(m.large_cover_url.as_ref());
+        match cover_opt.and_then(|u| state.covers.get(u)) {
+            Some(path) => container(
+                image(image::Handle::from_path(path.clone()))
+                    .width(Length::Fixed(w))
+                    .height(Length::Fixed(h))
+                    .content_fit(ContentFit::Fill),
+            )
+            .width(Length::Fixed(w))
+            .height(Length::Fixed(h))
+            .padding(0)
+            .style(crate::theme::card_container)
+            .into(),
             None => container(icon::glyph(icon::IMAGE, 48, palette::TEXT_DIM))
                 .center_x(Length::Fixed(w))
                 .center_y(Length::Fixed(h))

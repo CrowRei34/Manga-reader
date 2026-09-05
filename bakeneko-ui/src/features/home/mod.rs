@@ -109,17 +109,33 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             )
         })
         .collect();
-    let recent_row = container(scrollable(
-        Row::with_children(recent_cards)
-            .spacing(16)
-            .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 7.0, left: 0.0 }))
-    .style(crate::theme::scrollable_style)
-    .width(Length::Fill)
-    .height(Length::Shrink)
-    .direction(scrollable::Direction::Horizontal(Default::default())))
-    .style(crate::theme::panel_container)
-    .padding([12, 14])
-    .width(Length::Fill);
+
+    let recent_content: Element<'_, AppMessage> = if recent_cards.is_empty() {
+        container(
+            text("No hay lecturas recientes en el historial.")
+                .size(13)
+                .color(palette::TEXT_MUTED),
+        )
+        .padding([8, 10])
+        .into()
+    } else {
+        scrollable(
+            Row::with_children(recent_cards)
+                .spacing(16)
+                .padding(iced::Padding { top: 0.0, right: 0.0, bottom: 7.0, left: 0.0 }),
+        )
+        .style(crate::theme::scrollable_style)
+        .width(Length::Fill)
+        .height(Length::Shrink)
+        .direction(scrollable::Direction::Horizontal(Default::default()))
+        .into()
+    };
+
+    let recent_row = container(recent_content)
+        .style(crate::theme::panel_container)
+        .padding([12, 14])
+        .width(Length::Fill)
+        .clip(true);
 
     // Añadidos recientemente: grid responsivo de la biblioteca.
     let (columns, cover_width) = crate::widgets::cover::grid_metrics(

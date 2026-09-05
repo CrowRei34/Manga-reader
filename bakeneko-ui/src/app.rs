@@ -212,7 +212,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             match s {
                 Screen::Downloads => downloads::update(state, downloads::Message::Load),
                 Screen::Library => library::update(state, library::Message::Load),
-                Screen::Home => home::update(state, home::Message::LoadRecent),
+                Screen::Home => Task::batch([
+                    home::update(state, home::Message::LoadRecent),
+                    library::update(state, library::Message::Load),
+                ]),
                 _ => Task::none(),
             }
         }

@@ -39,7 +39,8 @@ pub fn fetch_covers(state: &AppState, mangas: &[Manga]) -> Task<AppMessage> {
     let mut tasks = Vec::new();
     let headers = state.cover_headers.clone();
     for m in mangas {
-        if let Some(url) = &m.cover_url {
+        let cover_opt = m.cover_url.as_ref().or(m.large_cover_url.as_ref());
+        if let Some(url) = cover_opt {
             if state.covers.contains_key(url) {
                 continue;
             }
@@ -82,16 +83,19 @@ fn cover_card_sized<'a>(
     msg: AppMessage,
 ) -> Element<'a, AppMessage> {
     let cover_height = cover_width * (COVER_H / COVER_W);
-    let img: Element<'a, AppMessage> = match m
-        .cover_url
-        .as_ref()
-        .and_then(|u| covers.get(u))
-    {
-        Some(path) => image(image::Handle::from_path(path.clone()))
-            .width(Length::Fixed(cover_width))
-            .height(Length::Fixed(cover_height))
-            .content_fit(ContentFit::Cover)
-            .into(),
+    let cover_opt = m.cover_url.as_ref().or(m.large_cover_url.as_ref());
+    let img: Element<'a, AppMessage> = match cover_opt.and_then(|u| covers.get(u)) {
+        Some(path) => container(
+            image(image::Handle::from_path(path.clone()))
+                .width(Length::Fixed(cover_width))
+                .height(Length::Fixed(cover_height))
+                .content_fit(ContentFit::Fill),
+        )
+        .width(Length::Fixed(cover_width))
+        .height(Length::Fixed(cover_height))
+        .padding(0)
+        .style(crate::theme::card_container)
+        .into(),
         // OJO: `center_x(Length)` SOBREESCRIBE el width/height — pasarle
         // `Fill` aquí infla el placeholder dentro de scrollables (layout
         // infinito que tapa el header/búsqueda). Centrar con el tamaño fijo.
