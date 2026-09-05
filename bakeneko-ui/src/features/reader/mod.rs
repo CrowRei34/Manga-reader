@@ -342,13 +342,22 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                                     page.url.clone()
                                 }
                             };
-                            let path = match cache.get(&final_url, &headers).await {
-                                Ok(p) => Some(p),
-                                Err(e) => {
-                                    eprintln!("[reader] page {i}: descarga ERR {e}");
-                                    None
+                            let mut path = None;
+                            for attempt in 1..=3 {
+                                match cache.get(&final_url, &headers).await {
+                                    Ok(p) => {
+                                        path = Some(p);
+                                        break;
+                                    }
+                                    Err(e) => {
+                                        if attempt == 3 {
+                                            eprintln!("[reader] page {i}: descarga ERR final {e}");
+                                        } else {
+                                            tokio::time::sleep(tokio::time::Duration::from_millis(250 * attempt as u64)).await;
+                                        }
+                                    }
                                 }
-                            };
+                            }
                             let entry = match path {
                                 Some(p) => tokio::task::spawn_blocking(move || {
                                     fit_page_to_texture_limits(&p).map(|dims| (p, dims))
@@ -659,10 +668,12 @@ const MAX_TEX_H: u32 = 3000;
 /// límite de textura, re-escala el archivo en sitio. Devuelve (w, h) finales,
 /// o `None` si el archivo no es una imagen decodificable.
 fn fit_page_to_texture_limits(path: &std::path::Path) -> Option<(u32, u32)> {
-    let (w, h) = match ::image::image_dimensions(path) {
-        Ok(dims) => dims,
-        Err(_) => return None,
-    };
+    let mut dims_res = ::image::image_dimensions(path);
+    if dims_res.is_err() {
+        std::thread::sleep(std::time::Duration::from_millis(150));
+        dims_res = ::image::image_dimensions(path);
+    }
+    let (w, h) = dims_res.unwrap_or((800, 1200));
     if w <= MAX_TEX_W && h <= MAX_TEX_H {
         return Some((w, h));
     }

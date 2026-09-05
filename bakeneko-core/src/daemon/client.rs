@@ -17,13 +17,9 @@ use tokio::process::Command;
 use tokio::sync::{oneshot, Mutex as AsyncMutex};
 
 pub struct DaemonClient {
-    // Base fd (std) para poder hacer try_clone()/dup() por cada call(); el reader
-    // se queda con una copia tokio del mismo socket. Envolvido en `Mutex` para
-    // poder compartir el `DaemonClient` como `Arc<DaemonClient>` desde el UI:
-    // el lado del spawn (`spawn_arc`) y el lado del runtime (`call`) pueden
-    // mutar el estado interno sin necesidad de `&mut self`.
     socket: Mutex<Option<std::os::unix::net::UnixStream>>,
     child: Mutex<Option<tokio::process::Child>>,
+    solver_child: Mutex<Option<tokio::process::Child>>,
     pending: Arc<AsyncMutex<HashMap<u64, oneshot::Sender<Result<Value, RpcException>>>>>,
     next_id: AtomicU64,
 }
@@ -33,6 +29,7 @@ impl DaemonClient {
         Self {
             socket: Mutex::new(None),
             child: Mutex::new(None),
+            solver_child: Mutex::new(None),
             pending: Arc::new(AsyncMutex::new(HashMap::new())),
             next_id: AtomicU64::new(1),
         }
@@ -95,6 +92,18 @@ impl DaemonClient {
             .current_dir(jar.parent().unwrap_or(Path::new(".")));
 
         if let Ok(exec) = std::env::current_exe() {
+            let exec_dir = exec.parent().unwrap();
+            let solver_candidates = vec![
+                exec_dir.join("bakeneko-solver"),
+                PathBuf::from("target/release/bakeneko-solver"),
+                PathBuf::from("target/debug/bakeneko-solver"),
+            ];
+            if let Some(solver) = solver_candidates.into_iter().find(|p| p.exists()) {
+                if let Ok(abs) = solver.canonicalize() {
+                    cmd.env("BAKENEKO_SOLVER_PATH", abs.to_string_lossy().to_string());
+                }
+            }
+
             let jre = exec.parent().unwrap().join("jre/bin/java");
             if java == jre.to_string_lossy() {
                 let jre_lib = exec.parent().unwrap().join("jre/lib");
@@ -222,6 +231,11 @@ impl DaemonClient {
             let _ = child.start_kill();
             let _ = tokio::time::timeout(Duration::from_secs(2), child.wait()).await;
         }
+        let solver_opt = { self.solver_child.lock().unwrap().take() };
+        if let Some(mut sc) = solver_opt {
+            let _ = sc.start_kill();
+            let _ = tokio::time::timeout(Duration::from_secs(2), sc.wait()).await;
+        }
     }
 
     /// Construye un `Arc<DaemonClient>` y arranca el daemon en un tokio task
@@ -257,6 +271,9 @@ impl Drop for DaemonClient {
         if let Some(mut child) = self.child.lock().ok().and_then(|mut guard| guard.take()) {
             let _ = child.start_kill();
             eprintln!("[daemon] proceso detenido al cerrar Bakeneko");
+        }
+        if let Some(mut sc) = self.solver_child.lock().ok().and_then(|mut guard| guard.take()) {
+            let _ = sc.start_kill();
         }
         if let Ok(mut socket) = self.socket.lock() {
             *socket = None;
