@@ -428,7 +428,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             if state.reader.page_handles.iter().any(|h| h.is_some()) {
                 state.reader.loading = false;
             }
-            if was_loading && !state.reader.loading {
+            if was_loading && !state.reader.loading && state.reader.read_mode == ReadMode::Webtoon && state.reader.current_page > 0 {
                 let total = state.reader.page_paths.len().max(1);
                 let offset = state.reader.current_page as f32 / total as f32;
                 return scrollable::snap_to(
@@ -881,29 +881,24 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                     let inside_render_window = idx.abs_diff(state.reader.current_page) <= 4;
                     let page_widget: Element<'_, AppMessage> = if inside_render_window {
                         if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
-                            container(
-                                image(handle.clone())
-                                    .content_fit(ContentFit::Contain)
-                                    .width(Length::Fill)
-                                    .height(Length::Fill),
-                            )
-                            .width(Length::Fill)
-                            .height(Length::Fixed(page_h))
-                            .center_x(Length::Fill)
-                            .center_y(Length::Fill)
-                            .clip(true)
-                            .into()
-                        } else {
-                            container(iced::widget::Space::new(Length::Fill, Length::Fill))
-                                .width(Length::Fill)
+                            image(handle.clone())
+                                .content_fit(ContentFit::Contain)
+                                .width(Length::Fixed(display_w))
                                 .height(Length::Fixed(page_h))
                                 .into()
+                        } else {
+                            iced::widget::Space::new(
+                                Length::Fixed(display_w),
+                                Length::Fixed(page_h),
+                            )
+                            .into()
                         }
                     } else {
-                        container(iced::widget::Space::new(Length::Fill, Length::Fill))
-                            .width(Length::Fill)
-                            .height(Length::Fixed(page_h))
-                            .into()
+                        iced::widget::Space::new(
+                            Length::Fixed(display_w),
+                            Length::Fixed(page_h),
+                        )
+                        .into()
                     };
 
                     col = col.push(page_widget);
