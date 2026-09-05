@@ -319,6 +319,9 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             }
             let page_count = pages.len();
             state.reader.current_page = state.reader.current_page.min(page_count - 1);
+            state.reader.page_paths = vec![PathBuf::new(); page_count];
+            state.reader.page_handles = vec![None; page_count];
+            state.reader.page_dims = vec![(0, 0); page_count];
             let restored_offset = state.reader.current_page as f32 / page_count as f32;
             // Descarga concurrente controlada (buffer_unordered de 4 páginas a la vez)
             // para no saturar Tokio, la red ni la I/O de disco.
@@ -396,22 +399,42 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 return Task::none();
             }
             eprintln!("[reader] PageDownloaded idx={index} ok={}", entry.is_some());
-            while state.reader.page_paths.len() <= index {
-                state.reader.page_paths.push(PathBuf::new());
-                state.reader.page_handles.push(None);
-                state.reader.page_dims.push((0, 0));
+            if index < state.reader.page_paths.len() {
+                if let Some((p, dims)) = entry {
+                    let filter = state.reader.color_filter;
+                    let handle = load_page_handle(&p, filter)
+                        .unwrap_or_else(|| iced::widget::image::Handle::from_path(p.clone()));
+                    state.reader.page_paths[index] = p;
+                    state.reader.page_handles[index] = Some(handle);
+                    state.reader.page_dims[index] = dims;
+                }
+            } else {
+                while state.reader.page_paths.len() <= index {
+                    state.reader.page_paths.push(PathBuf::new());
+                    state.reader.page_handles.push(None);
+                    state.reader.page_dims.push((0, 0));
+                }
+                if let Some((p, dims)) = entry {
+                    let filter = state.reader.color_filter;
+                    let handle = load_page_handle(&p, filter)
+                        .unwrap_or_else(|| iced::widget::image::Handle::from_path(p.clone()));
+                    state.reader.page_paths[index] = p;
+                    state.reader.page_handles[index] = Some(handle);
+                    state.reader.page_dims[index] = dims;
+                }
             }
-            if let Some((p, dims)) = entry {
-                let filter = state.reader.color_filter;
-                let handle = load_page_handle(&p, filter)
-                    .unwrap_or_else(|| iced::widget::image::Handle::from_path(p.clone()));
-                state.reader.page_paths[index] = p;
-                state.reader.page_handles[index] = Some(handle);
-                state.reader.page_dims[index] = dims;
-            }
+            let was_loading = state.reader.loading;
             // Quitar pantalla de carga únicamente cuando haya al menos 1 imagen lista.
             if state.reader.page_handles.iter().any(|h| h.is_some()) {
                 state.reader.loading = false;
+            }
+            if was_loading && !state.reader.loading {
+                let total = state.reader.page_paths.len().max(1);
+                let offset = state.reader.current_page as f32 / total as f32;
+                return scrollable::snap_to(
+                    scrollable::Id::new("reader-pages"),
+                    scrollable::RelativeOffset { x: 0.0, y: offset },
+                );
             }
             Task::none()
         }
@@ -436,10 +459,39 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             let y = if y.is_finite() { y.clamp(0.0, 1.0) } else { 0.0 };
             let total = state.reader.page_paths.len();
             if total > 0 {
-                let page_idx = ((y * (total as f32)).floor() as usize).min(total - 1);
+                let display_w = state.window_size.0.min(900.0).max(300.0);
+                let viewport_h = state.window_size.1.max(400.0);
+                let mut total_h = 0.0f32;
+                let heights: Vec<f32> = state.reader.page_dims.iter().map(|&(w, h)| {
+                    let ph = if w > 0 {
+                        (h as f32 * display_w / w as f32).round().max(100.0)
+                    } else {
+                        viewport_h
+                    };
+                    total_h += ph + 4.0;
+                    ph
+                }).collect();
+
+                let page_idx = if total_h > viewport_h {
+                    let max_scroll = total_h - viewport_h;
+                    let scroll_px = y * max_scroll;
+                    let target_center = scroll_px + (viewport_h * 0.5);
+                    let mut accum = 0.0f32;
+                    let mut found = total - 1;
+                    for (i, &ph) in heights.iter().enumerate() {
+                        accum += ph + 4.0;
+                        if accum >= target_center {
+                            found = i;
+                            break;
+                        }
+                    }
+                    found
+                } else {
+                    ((y * (total as f32)).floor() as usize).min(total - 1)
+                };
+
                 if page_idx != state.reader.current_page {
                     state.reader.current_page = page_idx;
-                    // Solo actualizamos scroll_y cuando cambia la página activa para recargar el buffer
                     state.reader.scroll_y = y;
                     update_history(state);
                 }
@@ -811,35 +863,50 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 let display_w = state.window_size.0.min(900.0).max(300.0);
                 let viewport_h = state.window_size.1.max(400.0);
 
-                let mut col = Column::new().spacing(4).max_width(900);
-                for idx in 0..state.reader.page_paths.len() {
-                    // Mantener solo cinco páginas dentro del árbol gráfico.
-                    // Dibujar todos los handles a la vez llena el atlas de
-                    // texturas de wgpu en capítulos largos y termina en
-                    // `Not enough memory left`. Las páginas lejanas conservan
-                    // su altura para que el scroll no salte.
-                    let inside_render_window = idx.abs_diff(state.reader.current_page) <= 2;
-                    if inside_render_window {
-                        if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
-                            col = col.push(page_element(handle, ContentFit::Contain));
-                            continue;
-                        }
-                    }
+                let mut col = Column::new()
+                    .spacing(4)
+                    .width(Length::Fixed(display_w))
+                    .max_width(900);
 
-                    {
-                        // Placeholder con la altura real escalada.
-                        // También cubre páginas aún no descargadas.
-                        let (w, h) = state.reader.page_dims.get(idx).copied().unwrap_or((0, 0));
-                        let scaled_h = if w > 0 {
-                            h as f32 * display_w / w as f32
+                for idx in 0..state.reader.page_paths.len() {
+                    let (w, h) = state.reader.page_dims.get(idx).copied().unwrap_or((0, 0));
+                    let page_h = if w > 0 {
+                        (h as f32 * display_w / w as f32).round().max(100.0)
+                    } else {
+                        viewport_h
+                    };
+
+                    // Ventana de 9 páginas (4 arriba, actual, 4 abajo)
+                    // para evitar pop-in y permitir scroll rápido y suave.
+                    let inside_render_window = idx.abs_diff(state.reader.current_page) <= 4;
+                    let page_widget: Element<'_, AppMessage> = if inside_render_window {
+                        if let Some(Some(handle)) = state.reader.page_handles.get(idx) {
+                            container(
+                                image(handle.clone())
+                                    .content_fit(ContentFit::Contain)
+                                    .width(Length::Fill)
+                                    .height(Length::Fill),
+                            )
+                            .width(Length::Fill)
+                            .height(Length::Fixed(page_h))
+                            .center_x(Length::Fill)
+                            .center_y(Length::Fill)
+                            .clip(true)
+                            .into()
                         } else {
-                            viewport_h
-                        };
-                        col = col.push(iced::widget::Space::new(
-                            Length::Fill,
-                            Length::Fixed(scaled_h),
-                        ));
-                    }
+                            container(iced::widget::Space::new(Length::Fill, Length::Fill))
+                                .width(Length::Fill)
+                                .height(Length::Fixed(page_h))
+                                .into()
+                        }
+                    } else {
+                        container(iced::widget::Space::new(Length::Fill, Length::Fill))
+                            .width(Length::Fill)
+                            .height(Length::Fixed(page_h))
+                            .into()
+                    };
+
+                    col = col.push(page_widget);
                 }
 
                 scrollable(container(col).center_x(Length::Fill))
