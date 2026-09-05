@@ -276,12 +276,23 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     let chapter_groups = organize_chapters(&filtered_chapters);
     let mut chapter_rows: Vec<Element<'_, AppMessage>> = Vec::new();
     for (language, chapters) in &chapter_groups {
-        chapter_rows.push(
-            container(text(format!("{} ({})", language, chapters.len())).size(14).color(accent))
-                .padding([8, 4])
-                .width(Length::Fill)
-                .into(),
-        );
+        let group_header = row![
+            icon::glyph(icon::LANGUAGE, 14, accent),
+            text(format!("{language}")).size(13).color(palette::TEXT),
+            container(
+                text(format!("{} cap.", chapters.len()))
+                    .size(11)
+                    .color(palette::TEXT_MUTED)
+            )
+            .style(crate::theme::pill_badge)
+            .padding([1, 6]),
+            iced::widget::horizontal_space(),
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center)
+        .padding([8, 2]);
+
+        chapter_rows.push(group_header.into());
 
         for c in chapters {
             let status_icon = if c.read {
@@ -297,96 +308,127 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 None => text(chapter_label(c)).size(14).color(palette::TEXT).width(Length::Fill).into(),
             };
 
-            let chapter_btn = button(
-                row![
-                    title,
-                    iced::widget::horizontal_space(),
-                ]
-                .align_y(iced::Alignment::Center)
-                .width(Length::Fill)
-            )
-            .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
-            .style(crate::theme::chapter_card_button)
-            .padding([9, 12])
-            .width(Length::Fill);
+            let chapter_title_btn = button(title)
+                .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+                .style(crate::theme::transparent_card_button)
+                .padding([8, 12])
+                .width(Length::Fill);
 
             let download_btn = button(status_icon)
                 .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
-                .style(crate::theme::link_button)
-                .padding([6, 8]);
+                .style(crate::theme::icon_action_button)
+                .padding([8, 12]);
 
-            chapter_rows.push(
+            let chapter_card = container(
                 row![
-                    chapter_btn,
+                    chapter_title_btn,
                     download_btn,
-                    iced::widget::Space::with_width(Length::Fixed(8.0)),
                 ]
-                .spacing(2)
                 .align_y(iced::Alignment::Center)
                 .width(Length::Fill)
-                .into(),
-            );
+            )
+            .style(crate::theme::chapter_card_container)
+            .width(Length::Fill);
+
+            chapter_rows.push(chapter_card.into());
         }
     }
 
-    let make_chapters_header = || {
-        let chapters_count_text = if filtered_chapters.len() == state.details.chapters.len() {
-            format!("Capítulos ({})", state.details.chapters.len())
+    let make_chapters_toolbar = || {
+        let count_text = if filtered_chapters.len() == state.details.chapters.len() {
+            format!("{}", state.details.chapters.len())
         } else {
-            format!("Capítulos ({}/{})", filtered_chapters.len(), state.details.chapters.len())
+            format!("{}/{}", filtered_chapters.len(), state.details.chapters.len())
         };
 
-        row![
-            text(chapters_count_text)
-                .size(17)
-                .color(palette::TEXT),
+        let count_badge = container(
+            text(count_text)
+                .size(11)
+                .color(palette::ON_ACCENT),
+        )
+        .style(crate::theme::badge)
+        .padding([2, 8]);
+
+        let title_row = row![
+            icon::glyph(icon::MENU_BOOK, 17, accent),
+            text("Capítulos").size(16).color(palette::TEXT),
+            count_badge,
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+
+        let download_all_btn = button(
+            row![
+                icon::glyph(icon::DOWNLOAD, 14, accent),
+                text("Descargar Todo").size(12).color(accent),
+            ]
+            .spacing(6)
+            .align_y(iced::Alignment::Center),
+        )
+        .on_press(AppMessage::Details(Message::DownloadAll))
+        .style(crate::theme::ghost_button)
+        .padding([6, 12]);
+
+        let top_header_row = row![
+            title_row,
             iced::widget::horizontal_space(),
-            button(
-                row![
-                    icon::glyph(icon::DOWNLOAD, 15, accent),
-                    text("Descargar Todo").size(13).color(accent),
-                ]
-                .spacing(6)
-                .align_y(iced::Alignment::Center),
-            )
-            .on_press(AppMessage::Details(Message::DownloadAll))
-            .style(crate::theme::link_button_accent)
-            .padding([4, 6]),
+            download_all_btn,
         ]
         .align_y(iced::Alignment::Center)
-        .width(Length::Fill)
-    };
+        .width(Length::Fill);
 
-    let make_language_filter = || {
-        let mut buttons = row![
+        let mut lang_buttons = row![
             button(text("Todos").size(12))
                 .on_press(AppMessage::Details(Message::SetLanguage(None)))
                 .style(crate::theme::chip_button(state.details.language_filter.is_none()))
-                .padding([5, 10])
+                .padding([4, 10])
         ]
         .spacing(6)
         .padding(iced::Padding {
-            top: 2.0,
+            top: 1.0,
             right: 4.0,
-            bottom: 6.0,
+            bottom: 4.0,
             left: 2.0,
         })
         .align_y(iced::Alignment::Center);
 
         for (language, label) in &language_options {
             let active = state.details.language_filter.as_deref() == Some(language.as_str());
-            buttons = buttons.push(
+            lang_buttons = lang_buttons.push(
                 button(text(*label).size(12))
                     .on_press(AppMessage::Details(Message::SetLanguage(Some(language.clone()))))
                     .style(crate::theme::chip_button(active))
-                    .padding([5, 10]),
+                    .padding([4, 10]),
             );
         }
 
-        scrollable(buttons)
+        let lang_scroll = scrollable(lang_buttons)
             .style(crate::theme::scrollable_style)
             .width(Length::Fill)
-            .direction(scrollable::Direction::Horizontal(Default::default()))
+            .direction(scrollable::Direction::Horizontal(Default::default()));
+
+        let lang_row = row![
+            text("Idioma:").size(12).color(palette::TEXT_MUTED),
+            lang_scroll,
+        ]
+        .spacing(8)
+        .align_y(iced::Alignment::Center);
+
+        container(
+            column![
+                top_header_row,
+                lang_row,
+            ]
+            .spacing(10)
+        )
+        .style(crate::theme::card_container)
+        .padding(iced::Padding {
+            top: 10.0,
+            right: 12.0,
+            bottom: 10.0,
+            left: 12.0,
+        })
+        .width(Length::Fill)
     };
 
     let clean_description = format_synopsis(m.description.as_deref());
@@ -449,25 +491,40 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .align_y(iced::Alignment::Start)
         .width(Length::Fill);
 
-        let synopsis_box = column![
+        let synopsis_header = row![
+            icon::glyph(icon::DESCRIPTION, 14, accent),
             text("Sinopsis").size(14).color(accent),
+        ]
+        .spacing(6)
+        .align_y(iced::Alignment::Center);
+
+        let synopsis_card = container(
             scrollable(
                 container(
                     text(clean_description.clone())
                         .size(13)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.45))
+                        .line_height(iced::widget::text::LineHeight::Relative(1.5))
                         .color(palette::TEXT)
                 )
                 .padding(iced::Padding {
-                    top: 2.0,
+                    top: 6.0,
                     right: 12.0,
                     bottom: 8.0,
-                    left: 2.0,
+                    left: 6.0,
                 })
             )
             .style(crate::theme::scrollable_style)
             .width(Length::Fill)
             .height(Length::Fill),
+        )
+        .style(crate::theme::card_container)
+        .padding(6)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        let synopsis_box = column![
+            synopsis_header,
+            synopsis_card,
         ]
         .spacing(6)
         .width(Length::Fill)
@@ -505,11 +562,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
         let right_info = container(
             column![
-                make_chapters_header(),
-                make_language_filter(),
-                container(iced::widget::Space::with_height(Length::Fixed(1.0)))
-                    .style(crate::theme::divider)
-                    .width(Length::Fill),
+                make_chapters_toolbar(),
                 chapter_list,
             ]
             .spacing(10)
@@ -549,24 +602,32 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             text(m.authors.first().cloned().unwrap_or_default())
                 .size(13)
                 .color(palette::TEXT_MUTED),
-            text("Sinopsis").size(14).color(accent),
-            scrollable(
-                container(
-                    text(clean_description)
-                        .size(13)
-                        .line_height(iced::widget::text::LineHeight::Relative(1.45))
-                        .color(palette::TEXT)
+            row![
+                icon::glyph(icon::DESCRIPTION, 14, accent),
+                text("Sinopsis").size(14).color(accent),
+            ].spacing(6).align_y(iced::Alignment::Center),
+            container(
+                scrollable(
+                    container(
+                        text(clean_description)
+                            .size(13)
+                            .line_height(iced::widget::text::LineHeight::Relative(1.5))
+                            .color(palette::TEXT)
+                    )
+                    .padding(iced::Padding {
+                        top: 4.0,
+                        right: 12.0,
+                        bottom: 6.0,
+                        left: 4.0,
+                    })
                 )
-                .padding(iced::Padding {
-                    top: 2.0,
-                    right: 12.0,
-                    bottom: 6.0,
-                    left: 2.0,
-                })
+                .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
+                .height(Length::Fixed(130.0))
             )
-            .style(crate::theme::scrollable_style)
-            .width(Length::Fill)
-            .height(Length::Fixed(140.0)),
+            .style(crate::theme::card_container)
+            .padding(4)
+            .width(Length::Fill),
         ]
         .spacing(8)
         .width(Length::Fill);
@@ -649,11 +710,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
 
         let chapters_panel = container(
             column![
-                make_chapters_header(),
-                make_language_filter(),
-                container(iced::widget::Space::with_height(Length::Fixed(1.0)))
-                    .style(crate::theme::divider)
-                    .width(Length::Fill),
+                make_chapters_toolbar(),
                 chapter_list,
             ]
             .spacing(10)
@@ -765,9 +822,68 @@ fn format_synopsis(raw: Option<&str>) -> String {
         .replace("&lt;", "<")
         .replace("&gt;", ">");
 
-    let mut result = String::with_capacity(cleaned.len());
+    let mut lines = Vec::new();
+    let mut in_links_section = false;
+
+    for line in cleaned.lines() {
+        let trimmed_line = line.trim();
+
+        let lower = trimmed_line.to_lowercase();
+        if lower.starts_with("---") || lower.starts_with("***") || lower.starts_with("___") {
+            in_links_section = true;
+            continue;
+        }
+        if lower.starts_with("- **links:**") || lower.starts_with("**links:**") || lower.starts_with("links:") {
+            in_links_section = true;
+            continue;
+        }
+        if in_links_section {
+            if (trimmed_line.starts_with('[') && trimmed_line.contains("]("))
+                || trimmed_line.starts_with("http://")
+                || trimmed_line.starts_with("https://")
+                || trimmed_line.is_empty()
+            {
+                continue;
+            }
+        }
+
+        // Clean markdown links [Title](url) -> Title
+        let mut line_str = trimmed_line.to_string();
+        while let Some(start_bracket) = line_str.find('[') {
+            if let Some(end_bracket) = line_str[start_bracket..].find(']') {
+                let end_bracket = start_bracket + end_bracket;
+                if line_str[end_bracket..].starts_with("](") {
+                    if let Some(end_paren) = line_str[end_bracket..].find(')') {
+                        let end_paren = end_bracket + end_paren;
+                        let title = line_str[start_bracket + 1..end_bracket].to_string();
+                        line_str.replace_range(start_bracket..=end_paren, &title);
+                        continue;
+                    }
+                }
+            }
+            break;
+        }
+
+        // Clean bold/italic asterisks
+        let line_clean = line_str
+            .replace("**", "")
+            .trim_matches('*')
+            .trim()
+            .to_string();
+
+        if line_clean.starts_with("- ") {
+            lines.push(format!("• {}", &line_clean[2..]));
+        } else if !line_clean.is_empty() {
+            lines.push(line_clean);
+        } else {
+            lines.push(String::new());
+        }
+    }
+
+    let joined = lines.join("\n");
+    let mut result = String::with_capacity(joined.len());
     let mut consecutive_newlines = 0;
-    for ch in cleaned.chars() {
+    for ch in joined.chars() {
         if ch == '\n' {
             consecutive_newlines += 1;
             if consecutive_newlines <= 2 {
@@ -778,7 +894,12 @@ fn format_synopsis(raw: Option<&str>) -> String {
             result.push(ch);
         }
     }
-    result.trim().to_string()
+    let final_text = result.trim().to_string();
+    if final_text.is_empty() {
+        "Sin descripción".to_string()
+    } else {
+        final_text
+    }
 }
 
 #[cfg(test)]
