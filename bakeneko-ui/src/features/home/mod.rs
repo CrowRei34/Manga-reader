@@ -18,12 +18,14 @@ use crate::widgets::cover::cover_card;
 pub struct State {
     /// (manga, chapter_index) del historial, ordenado por `updated_at DESC`.
     pub recent: Vec<(Manga, i32)>,
+    /// Mangas añadidos recientemente a la biblioteca (`added_at DESC`).
+    pub recently_added: Vec<Manga>,
 }
 
 #[derive(Debug, Clone)]
 pub enum Message {
     LoadRecent,
-    RecentLoaded(Result<Vec<(Manga, i32)>, DbError>),
+    RecentLoaded(Result<(Vec<(Manga, i32)>, Vec<Manga>), DbError>),
 }
 
 pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
@@ -34,13 +36,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::perform(
                     db::db_blocking(db, |conn| {
                         let ids = history_dao::recent(conn, 10)?;
-                        let mut out = Vec::with_capacity(ids.len());
+                        let mut recent = Vec::with_capacity(ids.len());
                         for (id, chapter_index, _, _) in ids {
                             if let Some(m) = manga_dao::get_by_id(conn, id)? {
-                                out.push((m, chapter_index));
+                                recent.push((m, chapter_index));
                             }
                         }
-                        Ok(out)
+                        let recently_added = manga_dao::list_recently_added(conn, 12)?;
+                        Ok((recent, recently_added))
                     }),
                     |r| AppMessage::Home(Message::RecentLoaded(r)),
                 )
@@ -48,10 +51,12 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 Task::none()
             }
         }
-        Message::RecentLoaded(Ok(recent)) => {
+        Message::RecentLoaded(Ok((recent, recently_added))) => {
             state.home.recent = recent;
-            // Trae las portadas del historial.
-            let mangas: Vec<Manga> = state.home.recent.iter().map(|(m, _)| m.clone()).collect();
+            state.home.recently_added = recently_added;
+            // Trae las portadas del historial y de los añadidos recientemente.
+            let mut mangas: Vec<Manga> = state.home.recent.iter().map(|(m, _)| m.clone()).collect();
+            mangas.extend(state.home.recently_added.iter().cloned());
             crate::widgets::cover::fetch_covers(state, &mangas)
         }
         Message::RecentLoaded(Err(e)) => {
@@ -137,24 +142,34 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .width(Length::Fill)
         .clip(true);
 
-    // Añadidos recientemente: grid responsivo de la biblioteca.
+    // Añadidos recientemente: grid responsivo de la biblioteca (hasta 12 obras ordenadas por fecha).
     let (columns, cover_width) = crate::widgets::cover::grid_metrics(
         state.window_size.0, &state.settings.library_view,
     );
-    let grid = crate::widgets::cover::cover_grid_sized(
-        &state.library,
-        &state.covers,
-        columns,
-        cover_width,
-        crate::widgets::cover::details_msg,
-    );
+    let grid_content: Element<'_, AppMessage> = if state.home.recently_added.is_empty() {
+        container(
+            text("No hay mangas en tu biblioteca todavía.")
+                .size(13)
+                .color(palette::TEXT_MUTED),
+        )
+        .padding([8, 10])
+        .into()
+    } else {
+        crate::widgets::cover::cover_grid_sized(
+            &state.home.recently_added,
+            &state.covers,
+            columns,
+            cover_width,
+            crate::widgets::cover::details_msg,
+        )
+    };
 
     let body = column![
         title,
         section_header("Continuar leyendo"),
         recent_row,
         section_header("Añadidos recientemente"),
-        grid,
+        grid_content,
     ]
     .spacing(20)
     .width(Length::Fill);

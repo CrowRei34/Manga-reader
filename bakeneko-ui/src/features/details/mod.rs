@@ -130,13 +130,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
         }
         Message::ChapterSelected(c) => {
             // Pasa la lista de capítulos + índice de este capítulo al reader
-            // (para navegar ‹ › entre capítulos).
-            let chapters: Vec<Chapter> = state.details.chapters.iter()
+            // (para navegar ‹ › entre capítulos en orden ascendente).
+            let mut chapters: Vec<Chapter> = state.details.chapters.iter()
                 .filter(|chapter| state.details.language_filter.as_deref()
                     .map(|filter| chapter_language_key(chapter) == filter)
                     .unwrap_or(true))
                 .cloned()
                 .collect();
+            chapters.sort_by(compare_chapters);
             let idx = chapters.iter().position(|x| x.url == c.url).unwrap_or(0);
             state.reader.chapters = chapters;
             state.reader.current_chapter = idx;
@@ -158,7 +159,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 }
                 _ => None,
             };
-            let available: Vec<Chapter> = state
+            let mut available: Vec<Chapter> = state
                 .details
                 .chapters
                 .iter()
@@ -167,11 +168,10 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                     .unwrap_or(true))
                 .cloned()
                 .collect();
+            available.sort_by(compare_chapters);
             let target = saved_chapter
                 .and_then(|saved| available.iter().find(|chapter| chapter.number as i32 == saved).cloned())
-                .or_else(|| available.into_iter().min_by(|a, b| {
-                    a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal)
-                }));
+                .or_else(|| available.first().cloned());
             match target {
                 Some(c) => update(state, Message::ChapterSelected(c)),
                 None => Task::none(),
@@ -838,17 +838,19 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     }
 }
 
+fn compare_chapters(a: &Chapter, b: &Chapter) -> std::cmp::Ordering {
+    a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal)
+        .then_with(|| a.upload_date.cmp(&b.upload_date))
+        .then_with(|| a.title.cmp(&b.title))
+}
+
 fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
     let mut groups: BTreeMap<String, Vec<Chapter>> = BTreeMap::new();
     for chapter in chapters {
         groups.entry(language_label(chapter).to_string()).or_default().push(chapter.clone());
     }
     for items in groups.values_mut() {
-        items.sort_by(|a, b| {
-            a.number.partial_cmp(&b.number).unwrap_or(std::cmp::Ordering::Equal)
-                .then_with(|| a.upload_date.cmp(&b.upload_date))
-                .then_with(|| a.title.cmp(&b.title))
-        });
+        items.sort_by(compare_chapters);
     }
     groups
 }

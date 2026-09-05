@@ -104,6 +104,7 @@ pub enum Message {
     ReaderPagesFetched {
         generation: u64,
         result: Result<Vec<bakeneko_core::models::Page>, DaemonError>,
+        headers: std::collections::HashMap<String, String>,
     },
     DownloadsLoaded(downloads::Loaded),
     DownloadEvent(DownloadEvent),
@@ -136,12 +137,14 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
             // siguiente frame). Concurrencia tomada de la settings actual.
             if state.downloads.is_none() {
                 if let (Some(db), Some(d)) = (state.db.clone(), state.daemon.clone()) {
-                    state.downloads = Some(DownloadManager::new(
+                    let mgr = DownloadManager::new(
                         db,
                         d,
                         state.cache.clone(),
                         state.settings.download_concurrency as usize,
-                    ));
+                    );
+                    mgr.start_worker();
+                    state.downloads = Some(mgr);
                 }
             }
             // dispara la carga inicial de fuentes + biblioteca + historial
@@ -238,8 +241,8 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<Message> {
         Message::Details(m) => details::update(state, m),
         Message::DetailsFetched(r) => details::update(state, details::Message::Fetched(r)),
         Message::Reader(m) => reader::update(state, m),
-        Message::ReaderPagesFetched { generation, result } => {
-            reader::update(state, reader::Message::PagesFetched { generation, result })
+        Message::ReaderPagesFetched { generation, result, headers } => {
+            reader::update(state, reader::Message::PagesFetched { generation, result, headers })
         }
         Message::DownloadsLoaded(Ok((entries, titles))) => {
             state.downloads_state.entries = entries;

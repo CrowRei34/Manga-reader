@@ -14,7 +14,7 @@
 //!
 //! **Offline:** si el capítulo fue descargado (`DownloadManager::is_complete`),
 //! las páginas se leen de disco en lugar de red.
-use iced::widget::{button, column, container, horizontal_space, image, row, scrollable, text, Column};
+use iced::widget::{button, column, container, image, row, scrollable, text, Column};
 use iced::{Color, ContentFit, Element, Length, Task};
 use std::collections::HashMap;
 use std::path::PathBuf;
@@ -146,15 +146,11 @@ pub struct State {
 pub enum Message {
     /// Abre un capítulo: persiste historial + dispara `chapter_pages`.
     Load(Chapter),
-    /// Respuesta de `chapter_pages` (ejecutada por el reducer global).
+    /// Respuesta coordinada de `chapter_pages` y `source_headers`.
     PagesFetched {
         generation: u64,
         result: Result<Vec<bakeneko_core::models::Page>, bakeneko_core::error::DaemonError>,
-    },
-    /// Respuesta de `source_headers`.
-    HeadersFetched {
-        generation: u64,
-        result: Result<HashMap<String, String>, bakeneko_core::error::DaemonError>,
+        headers: HashMap<String, String>,
     },
     /// Una página se descargó (path en disco + dimensiones, o `None` si falló).
     PageDownloaded {
@@ -227,6 +223,7 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
             state.reader.page_paths.clear();
             state.reader.page_handles.clear();
             state.reader.page_dims.clear();
+            state.reader.headers.clear();
             state.reader.scroll_y = 0.0;
             // Recupera la última página únicamente si corresponde al mismo capítulo.
             let manga = state.details.manga.clone();
@@ -268,31 +265,43 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                 }
             });
 
-            // Pide páginas + headers en paralelo.
+            // Pide páginas + headers coordinados con tokio::join!.
             let d = state.daemon.clone();
             let src = ch.source.clone();
             if let Some(d) = d {
-                let d_headers = d.clone();
-                let src_headers = src.clone();
                 eprintln!("[reader] Load: pidiendo pages+headers src={src}");
-                let pages_task = Task::perform(
-                    async move { d.chapter_pages(&src, &ch).await },
-                    move |result| AppMessage::ReaderPagesFetched { generation, result },
-                );
-                let headers_task = Task::perform(
-                    async move { d_headers.source_headers(&src_headers).await },
-                    move |result| AppMessage::Reader(Message::HeadersFetched { generation, result }),
-                );
-                Task::batch([pages_task, headers_task])
+                let ch_for_task = ch.clone();
+                Task::perform(
+                    async move {
+                        let (pages_res, headers_res) = tokio::join!(
+                            d.chapter_pages(&src, &ch_for_task),
+                            d.source_headers(&src),
+                        );
+                        let headers = match headers_res {
+                            Ok(h) => h,
+                            Err(e) => {
+                                eprintln!("[reader] source_headers ERR: {e}");
+                                HashMap::new()
+                            }
+                        };
+                        (pages_res, headers)
+                    },
+                    move |(result, headers)| AppMessage::ReaderPagesFetched {
+                        generation,
+                        result,
+                        headers,
+                    },
+                )
             } else {
                 state.reader.loading = false;
                 Task::none()
             }
         }
-        Message::PagesFetched { generation, result } => {
+        Message::PagesFetched { generation, result, headers } => {
             if generation != state.reader.load_generation {
                 return Task::none();
             }
+            state.reader.headers = headers;
             let pages = match result {
                 Ok(pages) => pages,
                 Err(e) => {
@@ -372,16 +381,6 @@ pub fn update(state: &mut AppState, msg: Message) -> Task<AppMessage> {
                     scrollable::RelativeOffset { x: 0.0, y: restored_offset },
                 ),
             ])
-        }
-        Message::HeadersFetched { generation, result } => {
-            if generation != state.reader.load_generation {
-                return Task::none();
-            }
-            match result {
-                Ok(headers) => state.reader.headers = headers,
-                Err(e) => state.reader.error = Some(e.to_string()),
-            }
-            Task::none()
         }
         Message::PageDownloaded { generation, index, entry } => {
             if generation != state.reader.load_generation {
@@ -713,6 +712,46 @@ fn load_filtered_rgba(
 
 
 
+fn format_reader_chapter_title(chapter: Option<&Chapter>, current_idx: usize) -> String {
+    let Some(c) = chapter else {
+        return format!("Capítulo {}", current_idx + 1);
+    };
+
+    let num_label = if c.number > 0.0 && c.number.is_finite() {
+        if c.number.fract() == 0.0 {
+            format!("Capítulo {}", c.number as i64)
+        } else {
+            let number = format!("{:.2}", c.number).trim_end_matches('0').to_string();
+            format!("Capítulo {}", number.trim_end_matches('.'))
+        }
+    } else {
+        String::new()
+    };
+
+    let title_trim = c.title.trim();
+    let full = match (num_label.is_empty(), title_trim.is_empty()) {
+        (false, false) => {
+            let lower = title_trim.to_lowercase();
+            if lower.starts_with("cap") || lower.starts_with("ch") {
+                title_trim.to_string()
+            } else {
+                format!("{num_label} · {title_trim}")
+            }
+        }
+        (false, true) => num_label,
+        (true, false) => title_trim.to_string(),
+        (true, true) => format!("Capítulo {}", current_idx + 1),
+    };
+
+    if full.chars().count() > 80 {
+        let mut s: String = full.chars().take(79).collect();
+        s.push('…');
+        s
+    } else {
+        full
+    }
+}
+
 /// Vista del lector: webtoon (scroll vertical) o paginated (una página),
 /// con overlays flotantes: X para salir, chip contador de páginas, panel
 /// inferior translúcido y panel de filtros — espejo del panel del original.
@@ -842,18 +881,10 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
     .padding(16);
 
     // --- Panel inferior flotante (translúcido, redondeado, como el original) ---
-    let chapter_title = state
-        .reader
-        .chapter
-        .as_ref()
-        .map(|c| {
-            if c.title.is_empty() {
-                format!("Ch. {}", state.reader.current_chapter + 1)
-            } else {
-                c.title.clone()
-            }
-        })
-        .unwrap_or_default();
+    let chapter_title = format_reader_chapter_title(
+        state.reader.chapter.as_ref(),
+        state.reader.current_chapter,
+    );
     let has_prev = state.reader.current_chapter > 0;
     let has_next = state.reader.current_chapter + 1 < state.reader.chapters.len();
     let filters_on = state.reader.color_filter != ColorFilter::None || state.reader.show_filters;
@@ -869,52 +900,82 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .padding(2)
     };
 
+    let prev_btn = button(
+        container(
+            text("‹").size(24).color(if has_prev { palette::TEXT } else { palette::TEXT_DIM })
+        )
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+    )
+    .on_press_maybe(if has_prev {
+        Some(AppMessage::Reader(Message::PrevChapter))
+    } else {
+        None
+    })
+    .style(crate::theme::link_button)
+    .width(Length::Fixed(40.0))
+    .height(Length::Fixed(40.0));
+
+    let next_btn = button(
+        container(
+            text("›").size(24).color(if has_next { palette::TEXT } else { palette::TEXT_DIM })
+        )
+        .center_x(Length::Fill)
+        .center_y(Length::Fill)
+    )
+    .on_press_maybe(if has_next {
+        Some(AppMessage::Reader(Message::NextChapter))
+    } else {
+        None
+    })
+    .style(crate::theme::link_button)
+    .width(Length::Fixed(40.0))
+    .height(Length::Fixed(40.0));
+
+    let center_content = column![
+        container(
+            text(chapter_title)
+                .size(13)
+                .color(palette::TEXT)
+                .align_x(iced::Alignment::Center)
+        )
+        .center_x(Length::Fill)
+        .padding([0, 6]),
+        row![
+            panel_link(
+                if state.reader.read_mode == ReadMode::Webtoon {
+                    "Webtoon"
+                } else {
+                    "Paginado"
+                },
+                true,
+                Message::ToggleMode,
+            ),
+            panel_link("Filtros", filters_on, Message::ToggleFilterPanel),
+            panel_link("Pantalla Completa", state.reader.is_fullscreen, Message::ToggleFullscreen),
+        ]
+        .spacing(14)
+        .align_y(iced::Alignment::Center),
+    ]
+    .spacing(4)
+    .align_x(iced::Alignment::Center)
+    .width(Length::Fill);
+
     let bottom_panel: Element<'_, AppMessage> = mouse_area(
         container(
             row![
-                button(text("‹").size(22).color(palette::TEXT))
-                    .on_press_maybe(if has_prev {
-                        Some(AppMessage::Reader(Message::PrevChapter))
-                    } else {
-                        None
-                    })
-                    .style(crate::theme::link_button)
-                    .padding([6, 14]),
-                horizontal_space(),
-                column![
-                    text(chapter_title).size(14).color(palette::TEXT),
-                    row![
-                        panel_link(
-                            if state.reader.read_mode == ReadMode::Webtoon {
-                                "Webtoon"
-                            } else {
-                                "Paginado"
-                            },
-                            true,
-                            Message::ToggleMode,
-                        ),
-                        panel_link("Filtros", filters_on, Message::ToggleFilterPanel),
-                        panel_link("Pantalla Completa", state.reader.is_fullscreen, Message::ToggleFullscreen),
-                    ]
-                    .spacing(14),
-                ]
-                .spacing(3)
-                .align_x(iced::Alignment::Center),
-                horizontal_space(),
-                button(text("›").size(22).color(palette::TEXT))
-                    .on_press_maybe(if has_next {
-                        Some(AppMessage::Reader(Message::NextChapter))
-                    } else {
-                        None
-                    })
-                    .style(crate::theme::link_button)
-                    .padding([6, 14]),
+                prev_btn,
+                center_content,
+                next_btn,
             ]
-            .align_y(iced::Alignment::Center),
+            .spacing(8)
+            .align_y(iced::Alignment::Center)
+            .width(Length::Fill),
         )
         .style(crate::theme::reader_panel)
-        .padding([10, 16])
-        .max_width(680),
+        .padding([8, 12])
+        .width(Length::Fill)
+        .max_width(700),
     )
     .on_press(AppMessage::Reader(Message::Noop))
     .into();

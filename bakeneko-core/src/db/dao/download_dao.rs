@@ -97,3 +97,11 @@ pub fn set_state(
     )?;
     Ok(())
 }
+
+pub fn reset_interrupted(conn: &Connection) -> Result<(), DbError> {
+    conn.execute(
+        "UPDATE download SET state='queued' WHERE state='downloading'",
+        [],
+    )?;
+    Ok(())
+}
