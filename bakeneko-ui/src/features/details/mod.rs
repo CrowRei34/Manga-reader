@@ -239,20 +239,20 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .into();
     };
 
-    let make_cover = || -> Element<'_, AppMessage> {
+    let make_cover = |w: f32, h: f32| -> Element<'_, AppMessage> {
         match m
             .cover_url
             .as_ref()
             .and_then(|u| state.covers.get(u))
         {
             Some(path) => image(image::Handle::from_path(path.clone()))
-                .width(Length::Fixed(COVER_W * 1.4))
-                .height(Length::Fixed(COVER_H * 1.4))
+                .width(Length::Fixed(w))
+                .height(Length::Fixed(h))
                 .content_fit(ContentFit::Cover)
                 .into(),
-            None => container(icon::glyph(icon::IMAGE, 56, palette::TEXT_DIM))
-                .center_x(Length::Fixed(COVER_W * 1.4))
-                .center_y(Length::Fixed(COVER_H * 1.4))
+            None => container(icon::glyph(icon::IMAGE, 48, palette::TEXT_DIM))
+                .center_x(Length::Fixed(w))
+                .center_y(Length::Fixed(h))
                 .style(crate::theme::card_container)
                 .into(),
         }
@@ -313,14 +313,15 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             let download_btn = button(status_icon)
                 .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
                 .style(crate::theme::link_button)
-                .padding(6);
+                .padding([6, 8]);
 
             chapter_rows.push(
                 row![
                     chapter_btn,
                     download_btn,
+                    iced::widget::Space::with_width(Length::Fixed(8.0)),
                 ]
-                .spacing(4)
+                .spacing(2)
                 .align_y(iced::Alignment::Center)
                 .width(Length::Fill)
                 .into(),
@@ -399,41 +400,44 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .width(Length::Fill);
 
         let left_info = container(
-            scrollable(
+            column![
+                container(make_cover(190.0, 270.0))
+                    .style(crate::theme::card_container)
+                    .padding(5)
+                    .center_x(Length::Fill),
                 column![
-                    container(make_cover())
-                        .style(crate::theme::card_container)
-                        .padding(6)
-                        .center_x(Length::Fill),
-                    column![
-                        text(m.title.clone()).size(20).color(palette::TEXT),
-                        text(m.authors.first().cloned().unwrap_or_default())
-                            .size(13)
-                            .color(palette::TEXT_MUTED),
-                    ]
-                    .spacing(4)
-                    .width(Length::Fill),
-                    left_buttons,
-                    column![
-                        text("Sinopsis").size(14).color(accent),
+                    text(m.title.clone()).size(19).color(palette::TEXT),
+                    text(m.authors.first().cloned().unwrap_or_default())
+                        .size(13)
+                        .color(palette::TEXT_MUTED),
+                ]
+                .spacing(3)
+                .width(Length::Fill),
+                left_buttons,
+                column![
+                    text("Sinopsis").size(14).color(accent),
+                    scrollable(
                         text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
                             .size(13)
-                            .color(palette::TEXT_MUTED),
-                    ]
-                    .spacing(6)
-                    .width(Length::Fill),
+                            .color(palette::TEXT_MUTED)
+                    )
+                    .style(crate::theme::scrollable_style)
+                    .width(Length::Fill)
+                    .height(Length::Fill)
                 ]
-                .spacing(16)
+                .spacing(6)
                 .width(Length::Fill)
-            )
-            .style(crate::theme::scrollable_style)
+                .height(Length::Fill),
+            ]
+            .spacing(12)
             .width(Length::Fill)
             .height(Length::Fill)
         )
         .style(crate::theme::panel_container)
         .padding(16)
         .width(Length::Fixed(360.0))
-        .height(Length::Fill);
+        .height(Length::Fill)
+        .clip(true);
 
         let left_col = column![
             back,
@@ -452,14 +456,30 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .style(crate::theme::panel_container)
                 .padding([6, 8])
                 .width(Length::Fill),
-            container(scrollable(Column::with_children(chapter_rows).spacing(4))
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
-                .height(Length::Fill))
-                .style(crate::theme::panel_container)
-                .padding(8)
-                .width(Length::Fill)
-                .height(Length::Fill),
+            container(scrollable(
+                Column::with_children(chapter_rows)
+                    .spacing(4)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 14.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                    })
+                    .width(Length::Fill)
+            )
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill)
+            .height(Length::Fill))
+            .style(crate::theme::panel_container)
+            .padding(iced::Padding {
+                top: 8.0,
+                right: 4.0,
+                bottom: 8.0,
+                left: 8.0,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .clip(true),
         ]
         .spacing(12)
         .width(Length::Fill)
@@ -519,7 +539,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         let header_row: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
             container(
                 column![
-                    container(make_cover())
+                    container(make_cover(COVER_W * 1.3, COVER_H * 1.3))
                         .style(crate::theme::card_container)
                         .padding(6),
                     column![title_block, buttons_row].spacing(14),
@@ -530,11 +550,12 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .style(crate::theme::panel_container)
             .padding(14)
             .width(Length::Fill)
+            .clip(true)
             .into()
         } else {
             container(
                 row![
-                    container(make_cover())
+                    container(make_cover(COVER_W * 1.3, COVER_H * 1.3))
                         .style(crate::theme::card_container)
                         .padding(6),
                     column![title_block, buttons_row].spacing(14),
@@ -545,6 +566,7 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .style(crate::theme::panel_container)
             .padding(18)
             .width(Length::Fill)
+            .clip(true)
             .into()
         };
 
@@ -559,14 +581,30 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 .padding([6, 8])
                 .width(Length::Fill),
             chapters_header,
-            container(scrollable(Column::with_children(chapter_rows).spacing(4))
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
-                .height(Length::Fill))
-                .style(crate::theme::panel_container)
-                .padding(8)
-                .width(Length::Fill)
-                .height(Length::Fill),
+            container(scrollable(
+                Column::with_children(chapter_rows)
+                    .spacing(4)
+                    .padding(iced::Padding {
+                        top: 0.0,
+                        right: 14.0,
+                        bottom: 0.0,
+                        left: 0.0,
+                    })
+                    .width(Length::Fill)
+            )
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill)
+            .height(Length::Fill))
+            .style(crate::theme::panel_container)
+            .padding(iced::Padding {
+                top: 8.0,
+                right: 4.0,
+                bottom: 8.0,
+                left: 8.0,
+            })
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .clip(true),
         ]
         .spacing(16)
         .width(Length::Fill)
