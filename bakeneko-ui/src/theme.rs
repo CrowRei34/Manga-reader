@@ -552,15 +552,16 @@ pub fn divider(theme: &Theme) -> container::Style {
     }
 }
 
-/// Barra de desplazamiento común: siempre visible de manera sutil para mantener
-/// el contenido centrado, y destacada al interactuar con el color de acento.
+/// Barra de desplazamiento común: el riel vertical permanece sutilmente visible en reposo
+/// para mantener el contenido centrado (catálogo, listas), mientras que el riel horizontal
+/// se mantiene invisible en reposo para no solapar botones ni chips seleccionables.
 pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
     let colors = ui_colors(theme);
     let active = matches!(
         status,
         scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. }
     );
-    let rail = scrollable::Rail {
+    let vertical_rail = scrollable::Rail {
         background: Some(Color { a: 0.15, ..colors.sidebar }.into()),
         border: Border {
             color: Color::TRANSPARENT,
@@ -580,10 +581,30 @@ pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable
             },
         },
     };
+    let horizontal_rail = scrollable::Rail {
+        background: Some(Color::TRANSPARENT.into()),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(0.0),
+        },
+        scroller: scrollable::Scroller {
+            color: if active {
+                Color { a: 0.60, ..colors.accent }
+            } else {
+                Color::TRANSPARENT
+            },
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: radius(2.0),
+            },
+        },
+    };
     scrollable::Style {
         container: container::Style::default(),
-        vertical_rail: rail,
-        horizontal_rail: rail,
+        vertical_rail,
+        horizontal_rail,
         gap: Some(Color { a: 0.0, ..colors.background }.into()),
     }
 }

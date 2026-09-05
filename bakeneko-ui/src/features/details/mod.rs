@@ -329,44 +329,65 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         }
     }
 
-    let chapters_header = container(row![
-        text(format!("Capítulos ({}/{})", filtered_chapters.len(), state.details.chapters.len()))
-            .size(18)
-            .color(palette::TEXT),
-        iced::widget::horizontal_space(),
-        button(
-            row![
-                icon::glyph(icon::DOWNLOAD, 16, accent),
-                text("Descargar Todo").size(13).color(accent),
-            ]
-            .spacing(6)
-            .align_y(iced::Alignment::Center),
-        )
-        .on_press(AppMessage::Details(Message::DownloadAll))
-        .style(crate::theme::link_button_accent)
-        .padding(4),
-    ]
-    .align_y(iced::Alignment::Center))
-    .style(crate::theme::card_container)
-    .padding([10, 12])
-    .width(Length::Fill);
+    let make_chapters_header = || {
+        let chapters_count_text = if filtered_chapters.len() == state.details.chapters.len() {
+            format!("Capítulos ({})", state.details.chapters.len())
+        } else {
+            format!("Capítulos ({}/{})", filtered_chapters.len(), state.details.chapters.len())
+        };
 
-    let mut language_buttons = row![button(text("Todos").size(12))
-        .on_press(AppMessage::Details(Message::SetLanguage(None)))
-        .style(if state.details.language_filter.is_none() { crate::theme::primary_button } else { crate::theme::link_button })
-        .padding([5, 9])]
+        row![
+            text(chapters_count_text)
+                .size(17)
+                .color(palette::TEXT),
+            iced::widget::horizontal_space(),
+            button(
+                row![
+                    icon::glyph(icon::DOWNLOAD, 15, accent),
+                    text("Descargar Todo").size(13).color(accent),
+                ]
+                .spacing(6)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(AppMessage::Details(Message::DownloadAll))
+            .style(crate::theme::link_button_accent)
+            .padding([4, 6]),
+        ]
+        .align_y(iced::Alignment::Center)
+        .width(Length::Fill)
+    };
+
+    let make_language_filter = || {
+        let mut buttons = row![
+            button(text("Todos").size(12))
+                .on_press(AppMessage::Details(Message::SetLanguage(None)))
+                .style(crate::theme::chip_button(state.details.language_filter.is_none()))
+                .padding([5, 10])
+        ]
         .spacing(6)
-        .padding([4, 0])
+        .padding(iced::Padding {
+            top: 2.0,
+            right: 4.0,
+            bottom: 6.0,
+            left: 2.0,
+        })
         .align_y(iced::Alignment::Center);
-    for (language, label) in language_options {
-        let active = state.details.language_filter.as_deref() == Some(language.as_str());
-        language_buttons = language_buttons.push(
-            button(text(label).size(12))
-                .on_press(AppMessage::Details(Message::SetLanguage(Some(language))))
-                .style(if active { crate::theme::primary_button } else { crate::theme::link_button })
-                .padding([5, 9]),
-        );
-    }
+
+        for (language, label) in &language_options {
+            let active = state.details.language_filter.as_deref() == Some(language.as_str());
+            buttons = buttons.push(
+                button(text(*label).size(12))
+                    .on_press(AppMessage::Details(Message::SetLanguage(Some(language.clone()))))
+                    .style(crate::theme::chip_button(active))
+                    .padding([5, 10]),
+            );
+        }
+
+        scrollable(buttons)
+            .style(crate::theme::scrollable_style)
+            .width(Length::Fill)
+            .direction(scrollable::Direction::Horizontal(Default::default()))
+    };
 
     let clean_description = format_synopsis(m.description.as_deref());
 
@@ -467,57 +488,61 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         .height(Length::Fill)
         .clip(true);
 
-        let left_col = column![
-            back,
-            left_info,
-        ]
-        .spacing(12)
-        .width(Length::Fixed(left_width))
-        .height(Length::Fill);
-
-        let right_col = column![
-            chapters_header,
-            container(scrollable(language_buttons)
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
-                .direction(scrollable::Direction::Horizontal(Default::default())))
-                .style(crate::theme::panel_container)
-                .padding([6, 8])
+        let chapter_list = scrollable(
+            Column::with_children(chapter_rows)
+                .spacing(4)
+                .padding(iced::Padding {
+                    top: 2.0,
+                    right: 14.0,
+                    bottom: 4.0,
+                    left: 0.0,
+                })
                 .width(Length::Fill),
-            container(scrollable(
-                Column::with_children(chapter_rows)
-                    .spacing(4)
-                    .padding(iced::Padding {
-                        top: 0.0,
-                        right: 14.0,
-                        bottom: 0.0,
-                        left: 0.0,
-                    })
-                    .width(Length::Fill)
-            )
-            .style(crate::theme::scrollable_style)
-            .width(Length::Fill)
-            .height(Length::Fill))
-            .style(crate::theme::panel_container)
-            .padding(iced::Padding {
-                top: 8.0,
-                right: 4.0,
-                bottom: 8.0,
-                left: 8.0,
-            })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .clip(true),
-        ]
-        .spacing(12)
+        )
+        .style(crate::theme::scrollable_style)
         .width(Length::Fill)
         .height(Length::Fill);
 
-        row![left_col, right_col]
-            .spacing(16)
+        let right_info = container(
+            column![
+                make_chapters_header(),
+                make_language_filter(),
+                container(iced::widget::Space::with_height(Length::Fixed(1.0)))
+                    .style(crate::theme::divider)
+                    .width(Length::Fill),
+                chapter_list,
+            ]
+            .spacing(10)
             .width(Length::Fill)
-            .height(Length::Fill)
-            .into()
+            .height(Length::Fill),
+        )
+        .style(crate::theme::panel_container)
+        .padding(iced::Padding {
+            top: 14.0,
+            right: 4.0,
+            bottom: 14.0,
+            left: 14.0,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .clip(true);
+
+        let panels_row = row![
+            left_info,
+            right_info,
+        ]
+        .spacing(16)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        column![
+            back,
+            panels_row,
+        ]
+        .spacing(12)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
     } else {
         let title_block = column![
             text(m.title.clone()).size(24).color(palette::TEXT),
@@ -607,43 +632,51 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .into()
         };
 
+        let chapter_list = scrollable(
+            Column::with_children(chapter_rows)
+                .spacing(4)
+                .padding(iced::Padding {
+                    top: 2.0,
+                    right: 14.0,
+                    bottom: 4.0,
+                    left: 0.0,
+                })
+                .width(Length::Fill),
+        )
+        .style(crate::theme::scrollable_style)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        let chapters_panel = container(
+            column![
+                make_chapters_header(),
+                make_language_filter(),
+                container(iced::widget::Space::with_height(Length::Fixed(1.0)))
+                    .style(crate::theme::divider)
+                    .width(Length::Fill),
+                chapter_list,
+            ]
+            .spacing(10)
+            .width(Length::Fill)
+            .height(Length::Fill),
+        )
+        .style(crate::theme::panel_container)
+        .padding(iced::Padding {
+            top: 14.0,
+            right: 4.0,
+            bottom: 14.0,
+            left: 14.0,
+        })
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .clip(true);
+
         column![
             back,
             header_row,
-            container(scrollable(language_buttons)
-                .style(crate::theme::scrollable_style)
-                .width(Length::Fill)
-                .direction(scrollable::Direction::Horizontal(Default::default())))
-                .style(crate::theme::panel_container)
-                .padding([6, 8])
-                .width(Length::Fill),
-            chapters_header,
-            container(scrollable(
-                Column::with_children(chapter_rows)
-                    .spacing(4)
-                    .padding(iced::Padding {
-                        top: 0.0,
-                        right: 14.0,
-                        bottom: 0.0,
-                        left: 0.0,
-                    })
-                    .width(Length::Fill)
-            )
-            .style(crate::theme::scrollable_style)
-            .width(Length::Fill)
-            .height(Length::Fill))
-            .style(crate::theme::panel_container)
-            .padding(iced::Padding {
-                top: 8.0,
-                right: 4.0,
-                bottom: 8.0,
-                left: 8.0,
-            })
-            .width(Length::Fill)
-            .height(Length::Fill)
-            .clip(true),
+            chapters_panel,
         ]
-        .spacing(16)
+        .spacing(12)
         .width(Length::Fill)
         .height(Length::Fill)
         .into()
