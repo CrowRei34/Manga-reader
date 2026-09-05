@@ -356,6 +356,26 @@ pub fn link_button_accent(theme: &Theme, status: button::Status) -> button::Styl
     }
 }
 
+/// Botón estilo card para capítulos: fondo superficie elevada, borde sepia, hover acentuado.
+pub fn chapter_card_button(theme: &Theme, status: button::Status) -> button::Style {
+    let colors = ui_colors(theme);
+    let (bg, border_color) = match status {
+        button::Status::Hovered => (Some(colors.hover.into()), colors.accent),
+        button::Status::Pressed => (Some(colors.hover.into()), colors.accent),
+        _ => (Some(Color { a: 0.86, ..colors.elevated }.into()), Color { a: 0.72, ..colors.border }),
+    };
+    button::Style {
+        background: bg,
+        text_color: colors.text,
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Contenedores
 // ---------------------------------------------------------------------------

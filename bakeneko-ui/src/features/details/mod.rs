@@ -239,99 +239,23 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
             .into();
     };
 
-    // Cover grande (2× la card).
-    let cover: Element<'_, AppMessage> = match m
-        .cover_url
-        .as_ref()
-        .and_then(|u| state.covers.get(u))
-    {
-        Some(path) => image(image::Handle::from_path(path.clone()))
-            .width(Length::Fixed(COVER_W * 1.4))
-            .height(Length::Fixed(COVER_H * 1.4))
-            .content_fit(ContentFit::Cover)
-            .into(),
-        None => container(icon::glyph(icon::IMAGE, 56, palette::TEXT_DIM))
-            .center_x(Length::Fixed(COVER_W * 1.4))
-            .center_y(Length::Fixed(COVER_H * 1.4))
-            .style(crate::theme::card_container)
-            .into(),
-    };
-
-    let title_block = column![
-        text(m.title.clone()).size(26).color(palette::TEXT),
-        text(m.authors.first().cloned().unwrap_or_default())
-            .size(14)
-            .color(palette::TEXT_MUTED),
-        text("Sinopsis").size(15).color(accent),
-        scrollable(
-            text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
-                .size(13)
-                .color(palette::TEXT_MUTED),
-        )
-        .style(crate::theme::scrollable_style)
-        .width(Length::Fill)
-        .height(Length::Fixed(140.0)),
-    ]
-    .spacing(8)
-    .width(Length::Fill);
-
-    let buttons_row = row![
-        button(
-            row![
-                icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
-                text("Leer Ahora").size(14).color(palette::ON_ACCENT),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center),
-        )
-        .on_press(AppMessage::Details(Message::ReadNow))
-        .style(crate::theme::primary_button)
-        .padding([10, 18]),
-        button(
-            row![
-                icon::glyph(icon::BOOKMARK, 16, accent),
-                text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
-                    .size(14).color(accent),
-            ]
-            .spacing(8)
-            .align_y(iced::Alignment::Center),
-        )
-        .on_press(AppMessage::Details(Message::ToggleLibrary))
-        .style(crate::theme::ghost_button)
-        .padding([10, 18]),
-    ]
-    .spacing(12);
-
-    let header_row: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
-        container(
-            column![
-                container(cover)
-                    .style(crate::theme::card_container)
-                    .padding(6),
-                column![title_block, buttons_row].spacing(14),
-            ]
-            .spacing(18)
-            .align_x(iced::Alignment::Center),
-        )
-        .style(crate::theme::panel_container)
-        .padding(14)
-        .width(Length::Fill)
-        .into()
-    } else {
-        container(
-            row![
-                container(cover)
-                    .style(crate::theme::card_container)
-                    .padding(6),
-                column![title_block, buttons_row].spacing(14),
-            ]
-            .spacing(22)
-            .align_y(iced::Alignment::Start),
-        )
-        .style(crate::theme::panel_container)
-        .padding(18)
-        .width(Length::Fill)
-        .into()
+    let make_cover = || -> Element<'_, AppMessage> {
+        match m
+            .cover_url
+            .as_ref()
+            .and_then(|u| state.covers.get(u))
+        {
+            Some(path) => image(image::Handle::from_path(path.clone()))
+                .width(Length::Fixed(COVER_W * 1.4))
+                .height(Length::Fixed(COVER_H * 1.4))
+                .content_fit(ContentFit::Cover)
+                .into(),
+            None => container(icon::glyph(icon::IMAGE, 56, palette::TEXT_DIM))
+                .center_x(Length::Fixed(COVER_W * 1.4))
+                .center_y(Length::Fixed(COVER_H * 1.4))
+                .style(crate::theme::card_container)
+                .into(),
+        }
     };
 
     // Filtro rápido por idioma; después agrupa y ordena numéricamente.
@@ -372,22 +296,32 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
                 ].spacing(2).width(Length::Fill).into(),
                 None => text(chapter_label(c)).size(14).color(palette::TEXT).width(Length::Fill).into(),
             };
-            chapter_rows.push(
-                container(row![
+
+            let chapter_btn = button(
+                row![
                     title,
-                    button(status_icon)
-                        .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
-                        .style(crate::theme::link_button)
-                        .padding(4),
-                    button(text("Ver").size(13).color(palette::TEXT_MUTED))
-                        .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
-                        .style(crate::theme::link_button)
-                        .padding(4),
+                    iced::widget::horizontal_space(),
                 ]
-                .spacing(8)
-                .align_y(iced::Alignment::Center))
-                .style(crate::theme::card_container)
-                .padding([5, 8])
+                .align_y(iced::Alignment::Center)
+                .width(Length::Fill)
+            )
+            .on_press(AppMessage::Details(Message::ChapterSelected(c.clone())))
+            .style(crate::theme::chapter_card_button)
+            .padding([9, 12])
+            .width(Length::Fill);
+
+            let download_btn = button(status_icon)
+                .on_press(AppMessage::Details(Message::DownloadChapter(c.clone())))
+                .style(crate::theme::link_button)
+                .padding(6);
+
+            chapter_rows.push(
+                row![
+                    chapter_btn,
+                    download_btn,
+                ]
+                .spacing(4)
+                .align_y(iced::Alignment::Center)
                 .width(Length::Fill)
                 .into(),
             );
@@ -433,27 +367,212 @@ pub fn view(state: &AppState) -> Element<'_, AppMessage> {
         );
     }
 
-    column![
-        back,
-        header_row,
-        container(scrollable(language_buttons)
+    if state.window_size.0 >= 1000.0 {
+        let left_buttons = column![
+            button(
+                row![
+                    icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
+                    text("Leer Ahora").size(14).color(palette::ON_ACCENT),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(AppMessage::Details(Message::ReadNow))
+            .style(crate::theme::primary_button)
+            .padding([10, 16])
+            .width(Length::Fill),
+            button(
+                row![
+                    icon::glyph(icon::BOOKMARK, 16, accent),
+                    text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
+                        .size(14).color(accent),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(AppMessage::Details(Message::ToggleLibrary))
+            .style(crate::theme::ghost_button)
+            .padding([10, 16])
+            .width(Length::Fill),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+
+        let left_info = container(
+            scrollable(
+                column![
+                    container(make_cover())
+                        .style(crate::theme::card_container)
+                        .padding(6)
+                        .center_x(Length::Fill),
+                    column![
+                        text(m.title.clone()).size(20).color(palette::TEXT),
+                        text(m.authors.first().cloned().unwrap_or_default())
+                            .size(13)
+                            .color(palette::TEXT_MUTED),
+                    ]
+                    .spacing(4)
+                    .width(Length::Fill),
+                    left_buttons,
+                    column![
+                        text("Sinopsis").size(14).color(accent),
+                        text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
+                            .size(13)
+                            .color(palette::TEXT_MUTED),
+                    ]
+                    .spacing(6)
+                    .width(Length::Fill),
+                ]
+                .spacing(16)
+                .width(Length::Fill)
+            )
             .style(crate::theme::scrollable_style)
             .width(Length::Fill)
-            .direction(scrollable::Direction::Horizontal(Default::default())))
-            .style(crate::theme::panel_container)
-            .padding([6, 8])
-            .width(Length::Fill),
-        chapters_header,
-        container(scrollable(Column::with_children(chapter_rows).spacing(4))
+            .height(Length::Fill)
+        )
+        .style(crate::theme::panel_container)
+        .padding(16)
+        .width(Length::Fixed(360.0))
+        .height(Length::Fill);
+
+        let left_col = column![
+            back,
+            left_info,
+        ]
+        .spacing(12)
+        .width(Length::Fixed(360.0))
+        .height(Length::Fill);
+
+        let right_col = column![
+            chapters_header,
+            container(scrollable(language_buttons)
+                .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
+                .direction(scrollable::Direction::Horizontal(Default::default())))
+                .style(crate::theme::panel_container)
+                .padding([6, 8])
+                .width(Length::Fill),
+            container(scrollable(Column::with_children(chapter_rows).spacing(4))
+                .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
+                .height(Length::Fill))
+                .style(crate::theme::panel_container)
+                .padding(8)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        ]
+        .spacing(12)
+        .width(Length::Fill)
+        .height(Length::Fill);
+
+        row![left_col, right_col]
+            .spacing(16)
+            .width(Length::Fill)
+            .height(Length::Fill)
+            .into()
+    } else {
+        let title_block = column![
+            text(m.title.clone()).size(26).color(palette::TEXT),
+            text(m.authors.first().cloned().unwrap_or_default())
+                .size(14)
+                .color(palette::TEXT_MUTED),
+            text("Sinopsis").size(15).color(accent),
+            scrollable(
+                text(m.description.clone().unwrap_or_else(|| "Sin descripción".into()))
+                    .size(13)
+                    .color(palette::TEXT_MUTED),
+            )
             .style(crate::theme::scrollable_style)
-            .width(Length::Fill))
+            .width(Length::Fill)
+            .height(Length::Fixed(140.0)),
+        ]
+        .spacing(8)
+        .width(Length::Fill);
+
+        let buttons_row = row![
+            button(
+                row![
+                    icon::glyph(icon::PLAY, 16, palette::ON_ACCENT),
+                    text("Leer Ahora").size(14).color(palette::ON_ACCENT),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(AppMessage::Details(Message::ReadNow))
+            .style(crate::theme::primary_button)
+            .padding([10, 18]),
+            button(
+                row![
+                    icon::glyph(icon::BOOKMARK, 16, accent),
+                    text(if state.details.in_library { "Quitar de Biblioteca" } else { "Agregar a Biblioteca" })
+                        .size(14).color(accent),
+                ]
+                .spacing(8)
+                .align_y(iced::Alignment::Center),
+            )
+            .on_press(AppMessage::Details(Message::ToggleLibrary))
+            .style(crate::theme::ghost_button)
+            .padding([10, 18]),
+        ]
+        .spacing(12);
+
+        let header_row: Element<'_, AppMessage> = if state.window_size.0 < 760.0 {
+            container(
+                column![
+                    container(make_cover())
+                        .style(crate::theme::card_container)
+                        .padding(6),
+                    column![title_block, buttons_row].spacing(14),
+                ]
+                .spacing(18)
+                .align_x(iced::Alignment::Center),
+            )
             .style(crate::theme::panel_container)
-            .padding(8)
-            .width(Length::Fill),
-    ]
-    .spacing(16)
-    .width(Length::Fill)
-    .into()
+            .padding(14)
+            .width(Length::Fill)
+            .into()
+        } else {
+            container(
+                row![
+                    container(make_cover())
+                        .style(crate::theme::card_container)
+                        .padding(6),
+                    column![title_block, buttons_row].spacing(14),
+                ]
+                .spacing(22)
+                .align_y(iced::Alignment::Start),
+            )
+            .style(crate::theme::panel_container)
+            .padding(18)
+            .width(Length::Fill)
+            .into()
+        };
+
+        column![
+            back,
+            header_row,
+            container(scrollable(language_buttons)
+                .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
+                .direction(scrollable::Direction::Horizontal(Default::default())))
+                .style(crate::theme::panel_container)
+                .padding([6, 8])
+                .width(Length::Fill),
+            chapters_header,
+            container(scrollable(Column::with_children(chapter_rows).spacing(4))
+                .style(crate::theme::scrollable_style)
+                .width(Length::Fill)
+                .height(Length::Fill))
+                .style(crate::theme::panel_container)
+                .padding(8)
+                .width(Length::Fill)
+                .height(Length::Fill),
+        ]
+        .spacing(16)
+        .width(Length::Fill)
+        .height(Length::Fill)
+        .into()
+    }
 }
 
 fn organize_chapters(chapters: &[Chapter]) -> BTreeMap<String, Vec<Chapter>> {
