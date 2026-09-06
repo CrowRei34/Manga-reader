@@ -101,12 +101,13 @@ class ZonaTmo(private val httpClient: OkHttpClient) {
     private fun startSolverDaemon() {
         try {
             val sockPath = getSolverSocketPath()
-            val sockFile = java.io.File(sockPath)
-            if (sockFile.exists()) {
-                sockFile.delete()
-            }
+            SolverDaemonLock.withLock(sockPath) {
+                val sockFile = java.io.File(sockPath)
+                // Otro hilo/proceso pudo haberlo iniciado mientras esperábamos
+                // el lock. No destruir su socket ni levantar un segundo WebKit.
+                if (sockFile.exists()) return@withLock
 
-            val solverBin = System.getenv("BAKENEKO_SOLVER_PATH") ?: run {
+                val solverBin = System.getenv("BAKENEKO_SOLVER_PATH") ?: run {
                 val execDir = try {
                     java.io.File(ZonaTmo::class.java.protectionDomain.codeSource.location.toURI()).parentFile
                 } catch (_: Exception) { null }
@@ -126,32 +127,33 @@ class ZonaTmo(private val httpClient: OkHttpClient) {
                     }
                 }
                 paths.firstOrNull { java.io.File(it).exists() } ?: "bakeneko-solver"
-            }
-            val solverFile = java.io.File(solverBin)
-            if (solverFile.isAbsolute && !solverFile.canExecute()) {
-                System.err.println("[solver] binario no ejecutable: $solverBin")
-                return
-            }
-            val pb = ProcessBuilder(solverBin)
-            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT)
-            // No ocultar el error: si WebKitGTK, el display o el cargador dinámico
-            // fallan, esta salida es la única pista útil para el usuario.
-            pb.redirectError(ProcessBuilder.Redirect.INHERIT)
-            val process = pb.start()
-
-            for (i in 0..100) {
-                if (sockFile.exists()) break
-                Thread.sleep(100)
-            }
-            if (!sockFile.exists()) {
-                val state = if (process.isAlive) {
-                    "sigue ejecutándose pero no creó el socket"
-                } else {
-                    "terminó con código ${process.exitValue()}"
                 }
-                System.err.println("[solver] $state; bin=$solverBin socket=$sockPath " +
-                    "XDG_RUNTIME_DIR=${System.getenv("XDG_RUNTIME_DIR") ?: "(no definido)"} " +
-                    "DISPLAY=${System.getenv("DISPLAY") ?: "(no definido)"}")
+                val solverFile = java.io.File(solverBin)
+                if (solverFile.isAbsolute && !solverFile.canExecute()) {
+                    System.err.println("[solver] binario no ejecutable: $solverBin")
+                    return@withLock
+                }
+                val pb = ProcessBuilder(solverBin)
+                pb.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+                // No ocultar el error: si WebKitGTK, el display o el cargador dinámico
+                // fallan, esta salida es la única pista útil para el usuario.
+                pb.redirectError(ProcessBuilder.Redirect.INHERIT)
+                val process = pb.start()
+
+                for (i in 0..100) {
+                    if (sockFile.exists()) break
+                    Thread.sleep(100)
+                }
+                if (!sockFile.exists()) {
+                    val state = if (process.isAlive) {
+                        "sigue ejecutándose pero no creó el socket"
+                    } else {
+                        "terminó con código ${process.exitValue()}"
+                    }
+                    System.err.println("[solver] $state; bin=$solverBin socket=$sockPath " +
+                        "XDG_RUNTIME_DIR=${System.getenv("XDG_RUNTIME_DIR") ?: "(no definido)"} " +
+                        "DISPLAY=${System.getenv("DISPLAY") ?: "(no definido)"}")
+                }
             }
         } catch (e: Exception) {
             System.err.println("Error spawning bakeneko-solver daemon: ${e.message}")
