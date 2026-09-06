@@ -87,7 +87,9 @@ jobs:
             tar -xzf "$package" -C "$check_dir"
             # No depender del formato exacto que use tar para listar la
             # carpeta raíz (con o sin ./): localizamos el runtime extraído.
-            java_path="$(find "$check_dir" -type f -path '*/app/jre/bin/java' -print -quit)"
+            # `bin/java` puede ser un archivo regular o un enlace simbólico
+            # según la distribución de Java usada por setup-java.
+            java_path="$(find "$check_dir" -path '*/app/jre/bin/java' -print -quit)"
             test -n "$java_path"
             root="${java_path%/app/jre/bin/java}"
             test -x "$root/app/jre/bin/java"
