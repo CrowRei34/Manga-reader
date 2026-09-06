@@ -4,10 +4,10 @@ Un lector de manga desktop de alto rendimiento construido con **Rust** y la inte
 
 ## Características
 
-- 🚀 **UI Nativa en Rust (Iced):** Interfaz fluida y ligera.
-- 📖 **Lector Webtoon y Paginado:** Soporte para vista vertical continua y paginada tradicional.
-- ⚡ **Daemon IPC:** Arquitectura desacoplada mediante Unix Domain Sockets (JSON-RPC).
-- 💾 **Gestión Local:** Base de datos SQLite local y caché de imágenes eficiente.
+- **UI Nativa en Rust (Iced):** Interfaz fluida y ligera.
+-  **Lector Webtoon y Paginado:** Soporte para vista vertical continua y paginada tradicional.
+- **Daemon IPC:** Arquitectura desacoplada mediante Unix Domain Sockets (JSON-RPC).
+-  **Gestión Local:** Base de datos SQLite local y caché de imágenes eficiente.
 
 ## Requisitos
 
