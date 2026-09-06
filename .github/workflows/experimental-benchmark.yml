@@ -99,16 +99,50 @@ jobs:
             "$root/app/jre/bin/java" -version
           done
 
+      - name: Diagnosticar runtimes extraídos
+        if: always()
+        run: |
+          set +e
+          : > validation-diagnostics.txt
+          for variant in full jlink; do
+            package="dist-${variant}/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz"
+            {
+              echo "===== $variant ====="
+              echo "package: $package"
+              echo "archive entries:"
+              tar -tzf "$package" 2>&1 | grep -E 'app/jre/(bin/(java|keytool)|lib/security/cacerts)(/)?$' || true
+              check_dir="$(mktemp -d)"
+              tar -xzf "$package" -C "$check_dir" || true
+              echo "java candidates:"
+              find "$check_dir" -path '*/app/jre/bin/java' -print -exec ls -ld {} \; 2>&1
+              echo "runtime files:"
+              find "$check_dir" \( -path '*/app/jre/bin/keytool' -o -path '*/app/jre/lib/security/cacerts' \) -print -exec ls -ld {} \; 2>&1
+              java_path="$(find "$check_dir" -path '*/app/jre/bin/java' -print -quit)"
+              if [ -n "$java_path" ]; then
+                root="${java_path%/app/jre/bin/java}"
+                echo "root: $root"
+                file "$root/app/jre/bin/java" "$root/app/jre/bin/keytool" "$root/app/jre/lib/security/cacerts" 2>&1
+                ls -l "$root/app/jre/bin/java" "$root/app/jre/bin/keytool" "$root/app/jre/lib/security/cacerts" 2>&1
+                "$root/app/jre/bin/java" -version 2>&1
+              fi
+            } >> validation-diagnostics.txt
+          done
+
       - name: Unir reportes
+        if: always()
         run: |
           {
-            cat benchmark-full.txt
+            cat benchmark-full.txt 2>/dev/null || true
             echo
             echo "===== jlink ====="
-            cat benchmark-jlink.txt
+            cat benchmark-jlink.txt 2>/dev/null || true
+            echo
+            echo "===== validation diagnostics ====="
+            cat validation-diagnostics.txt 2>/dev/null || true
           } > experimental-benchmark.txt
 
       - name: Publicar reporte
+        if: always()
         uses: actions/upload-artifact@v4
         with:
           name: experimental-benchmark-${{ github.sha }}
@@ -116,4 +150,5 @@ jobs:
             experimental-benchmark.txt
             benchmark-full.txt
             benchmark-jlink.txt
+            validation-diagnostics.txt
           if-no-files-found: error
