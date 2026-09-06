@@ -95,6 +95,13 @@ fn get_solver_socket_path() -> PathBuf {
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
+    // La publicación usa esta salida como smoke test del binario extraído. Al
+    // llegar a `main`, el cargador dinámico ya verificó GTK/WebKitGTK.
+    if env::args_os().any(|arg| arg == "--version") {
+        println!("bakeneko-solver {}", env!("CARGO_PKG_VERSION"));
+        return Ok(());
+    }
+
     // 1. Matar solver inmediatamente cuando el proceso padre (Bakeneko / Java) muere
     unsafe {
         libc::prctl(libc::PR_SET_PDEATHSIG, libc::SIGTERM);

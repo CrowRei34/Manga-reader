@@ -38,6 +38,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
             libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev \
             libxcursor-dev libxrandr-dev libxi-dev libvulkan-dev \
             libgl1-mesa-dev pkg-config
@@ -47,10 +48,10 @@ jobs:
         run: ./gradlew test shadowJar --no-daemon
 
       - name: Probar la aplicación
-        run: cargo test --workspace --lib --locked
+        run: cargo test --workspace --all-targets --locked
 
-      - name: Construir binario optimizado
-        run: cargo build --release --locked
+      - name: Construir binarios optimizados
+        run: cargo build --release --locked --package bakeneko --package bakeneko-solver
 
       - name: Resolver versión
         id: version
@@ -71,10 +72,19 @@ jobs:
           SKIP_BUILD: "1"
         run: ./package_cpack.sh "${{ steps.version.outputs.value }}"
 
-      - name: Validar Java dentro del paquete
+      - name: Validar ejecutables dentro del paquete
         run: |
-          tar -tzf "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz" \
-            | grep -q '/app/jre/bin/java$'
+          PACKAGE="dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz"
+          tar -tzf "$PACKAGE" | grep '/app/jre/bin/java$' >/dev/null
+          tar -tzf "$PACKAGE" | grep '/app/bakeneko-solver$' >/dev/null
+          CHECK_DIR="$(mktemp -d)"
+          tar -xzf "$PACKAGE" -C "$CHECK_DIR"
+          ROOT="$(find "$CHECK_DIR" -mindepth 1 -maxdepth 1 -type d -name 'Bakeneko-Portable-*' -print -quit)"
+          test -x "$ROOT/app/bakeneko"
+          test -x "$ROOT/app/bakeneko-solver"
+          test -x "$ROOT/app/jre/bin/java"
+          "$ROOT/app/bakeneko-solver" --version
+          ! ldd "$ROOT/app/bakeneko-solver" | grep -q 'not found'
 
       - name: Generar suma SHA-256
         run: |
