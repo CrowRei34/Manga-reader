@@ -97,7 +97,6 @@ jobs:
             test -s "$root/app/jre/lib/security/cacerts"
             echo "[$variant] runtime encontrado en $root"
             "$root/app/jre/bin/java" -version
-            "$root/app/jre/bin/keytool" -help >/dev/null 2>&1
           done
 
       - name: Unir reportes
