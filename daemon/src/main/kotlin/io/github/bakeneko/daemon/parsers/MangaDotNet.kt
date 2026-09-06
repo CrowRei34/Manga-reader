@@ -144,14 +144,31 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
                 }
                 paths.firstOrNull { java.io.File(it).exists() } ?: "bakeneko-solver"
             }
+            val solverFile = java.io.File(solverBin)
+            if (solverFile.isAbsolute && !solverFile.canExecute()) {
+                System.err.println("[solver] binario no ejecutable: $solverBin")
+                return
+            }
             val pb = ProcessBuilder(solverBin)
-            pb.redirectOutput(ProcessBuilder.Redirect.DISCARD)
-            pb.redirectError(ProcessBuilder.Redirect.DISCARD)
-            pb.start()
+            pb.redirectOutput(ProcessBuilder.Redirect.INHERIT)
+            // No ocultar el error: si WebKitGTK, el display o el cargador dinámico
+            // fallan, esta salida es la única pista útil para el usuario.
+            pb.redirectError(ProcessBuilder.Redirect.INHERIT)
+            val process = pb.start()
 
-            for (i in 0..50) {
+            for (i in 0..100) {
                 if (sockFile.exists()) break
                 Thread.sleep(100)
+            }
+            if (!sockFile.exists()) {
+                val state = if (process.isAlive) {
+                    "sigue ejecutándose pero no creó el socket"
+                } else {
+                    "terminó con código ${process.exitValue()}"
+                }
+                System.err.println("[solver] $state; bin=$solverBin socket=$sockPath " +
+                    "XDG_RUNTIME_DIR=${System.getenv("XDG_RUNTIME_DIR") ?: "(no definido)"} " +
+                    "DISPLAY=${System.getenv("DISPLAY") ?: "(no definido)"}")
             }
         } catch (e: Exception) {
             System.err.println("Error spawning bakeneko-solver daemon: ${e.message}")
@@ -163,6 +180,10 @@ class MangaDotNet(private val httpClient: OkHttpClient) {
         val socketFile = java.io.File(sockPath)
         if (!socketFile.exists()) {
             startSolverDaemon()
+        }
+        if (!socketFile.exists()) {
+            System.err.println("[solver] socket no disponible: $sockPath; se omite la consulta")
+            return ""
         }
 
         try {
