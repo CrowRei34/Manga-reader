@@ -33,6 +33,9 @@ pub const DOWNLOAD_FOR_OFFLINE: char = '\u{e171}';
 pub const IMAGE: char = '\u{e3f4}';          // image (placeholder de portada)
 #[allow(dead_code)]
 pub const EXPAND_MORE: char = '\u{e5cf}';
+pub const DESCRIPTION: char = '\u{e873}';
+pub const MENU_BOOK: char = '\u{e02f}';
+pub const LANGUAGE: char = '\u{e894}';
 
 /// Texto de ícono con tamaño y color. El caller encadena `.into()`.
 pub fn glyph(code: char, size: u16, color: Color) -> text::Text<'static> {

@@ -5,7 +5,9 @@ VERSION="${1:-0.1.0}"
 BUILD_DIR="${CPACK_BUILD_DIR:-build/cpack}"
 
 if [ "${SKIP_BUILD:-0}" != "1" ]; then
-  cargo build --release --locked
+  # `bakeneko-ui` es el único default-member del workspace; por eso el solver
+  # debe compilarse explícitamente o el paquete queda funcionalmente incompleto.
+  cargo build --release --locked --package bakeneko --package bakeneko-solver
   (cd daemon && ./gradlew test shadowJar --no-daemon)
 fi
 
@@ -36,5 +38,6 @@ cpack --config "$BUILD_DIR/CPackConfig.cmake" -G TGZ -B "$PWD/dist"
 
 PACKAGE="$PWD/dist/Bakeneko-Portable-v${VERSION}-Linux-x86_64.tar.gz"
 test -s "$PACKAGE"
+tar -tzf "$PACKAGE" | grep '/app/bakeneko-solver$' >/dev/null
 (cd "$PWD/dist" && sha256sum "$(basename "$PACKAGE")") > "$PACKAGE.sha256"
 echo "$PACKAGE"

@@ -13,6 +13,8 @@ Un lector de manga desktop de alto rendimiento construido con **Rust** y la inte
 
 - **Rust:** 1.75+
 - **Java / JRE:** 21+ para desarrollo. El paquete portátil ya incluye Java.
+- **WebKitGTK 4.1:** motor nativo que utiliza el solver en Linux. Para compilar:
+  `libwebkit2gtk-4.1-dev` en Debian/Ubuntu o `libwebkit2gtk41-devel` en Void.
 
 ## Ejecución
 
@@ -23,13 +25,18 @@ cargo run
 ## Paquete portátil con CPack
 
 El release publica `Bakeneko-Portable-vX.Y.Z-Linux-x86_64.tar.gz`. No necesita
-FUSE, AppImage ni una instalación de Java:
+FUSE, AppImage ni una instalación de Java. El solver está dentro del paquete;
+solo requiere que WebKitGTK 4.1 esté instalado en el sistema:
 
 ```bash
 tar -xzf Bakeneko-Portable-vX.Y.Z-Linux-x86_64.tar.gz
 cd Bakeneko-Portable-vX.Y.Z-Linux-x86_64
 ./bakeneko
 ```
+
+En Void Linux puedes instalar el runtime del solver con
+`sudo xbps-install -S libwebkit2gtk41`. En Debian/Ubuntu utiliza
+`sudo apt install libwebkit2gtk-4.1-0`.
 
 Para generarlo localmente con un JDK 21:
 
