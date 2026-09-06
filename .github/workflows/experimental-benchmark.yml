@@ -1,0 +1,67 @@
+name: Medir optimizaciones experimental
+
+on:
+  push:
+    branches:
+      - experimental
+  workflow_dispatch:
+
+permissions:
+  contents: read
+
+concurrency:
+  group: experimental-benchmark
+  cancel-in-progress: true
+
+jobs:
+  baseline:
+    name: Medir paquete portátil
+    if: github.ref == 'refs/heads/experimental'
+    runs-on: ubuntu-latest
+    timeout-minutes: 60
+
+    steps:
+      - name: Descargar el proyecto
+        uses: actions/checkout@v4
+
+      - name: Configurar Java 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: gradle
+
+      - name: Instalar dependencias de Linux
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y \
+            libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev \
+            libxcursor-dev libxrandr-dev libxi-dev libvulkan-dev \
+            libgl1-mesa-dev pkg-config
+
+      - name: Construir daemon Java
+        working-directory: daemon
+        run: ./gradlew test shadowJar --no-daemon
+
+      - name: Construir binarios Rust
+        run: cargo build --release --locked
+
+      - name: Empaquetar línea base
+        env:
+          SKIP_BUILD: "1"
+          JRE_HOME: ${{ env.JAVA_HOME }}
+        run: ./package_cpack.sh 0.0.0-experimental
+
+      - name: Medir y guardar reporte
+        env:
+          JRE_HOME: ${{ env.JAVA_HOME }}
+          PACKAGE_PATH: dist/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz
+          REPORT_PATH: experimental-benchmark.txt
+        run: scripts/measure-build.sh
+
+      - name: Publicar reporte
+        uses: actions/upload-artifact@v4
+        with:
+          name: experimental-benchmark-${{ github.sha }}
+          path: experimental-benchmark.txt
+          if-no-files-found: error
