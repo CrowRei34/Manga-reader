@@ -4,7 +4,9 @@ use std::fs;
 use std::io::{BufRead, BufReader, Write};
 use std::os::unix::net::UnixListener;
 use std::path::PathBuf;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::mpsc::{channel, Sender};
+use std::sync::Arc;
 use std::thread;
 use std::time::{Duration, Instant};
 
@@ -18,7 +20,7 @@ use tao::{
     platform::unix::WindowExtUnix,
     window::WindowBuilder,
 };
-use wry::{WebContext, WebViewBuilder};
+use wry::{PageLoadEvent, WebContext, WebViewBuilder};
 
 #[derive(Serialize, Deserialize)]
 struct SocketRequest {
@@ -146,6 +148,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env::set_var("GST_DEBUG", "0");
     env::set_var("PULSE_SERVER", "");
     env::set_var("PIPEWIRE_REMOTE", "");
+    // El solver no usa cámara ni micrófono; evitar que libcamera ensucie los
+    // logs al enumerar dispositivos durante la inicialización de WebKitGTK.
+    env::set_var("LIBCAMERA_LOG_LEVELS", "*:FATAL");
     configure_webkit_backend();
 
     let sock_path = get_solver_socket_path();
@@ -183,9 +188,17 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let _ = fs::create_dir_all(&profile_dir);
     let mut web_context = WebContext::new(Some(profile_dir));
 
+    let page_ready = Arc::new(AtomicBool::new(false));
+    let page_ready_handler = page_ready.clone();
     let proxy_ipc = proxy.clone();
     let webview = match WebViewBuilder::with_web_context(&mut web_context)
         .with_url(base_url)
+        .with_on_page_load_handler(move |event, url| {
+            if matches!(event, PageLoadEvent::Finished) {
+                page_ready_handler.store(true, Ordering::Release);
+                eprintln!("[solver] WebView listo: {url}");
+            }
+        })
         .with_ipc_handler(move |req| {
             let _ = proxy_ipc.send_event(UserEvent::IpcResult(req.body().clone()));
         })
@@ -206,11 +219,13 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     // Servidor Unix Domain Socket en un hilo dedicado
     let listener = UnixListener::bind(&sock_path)?;
     let proxy_server = proxy.clone();
+    let page_ready_server = page_ready.clone();
 
     thread::spawn(move || {
         for stream in listener.incoming() {
             let Ok(stream) = stream else { continue };
             let proxy_inner = proxy_server.clone();
+            let page_ready_inner = page_ready_server.clone();
             thread::spawn(move || {
                 let mut reader = BufReader::new(&stream);
                 let mut writer = &stream;
@@ -225,6 +240,30 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                         continue;
                     }
                     if let Ok(req) = serde_json::from_str::<SocketRequest>(trimmed) {
+                        // La URL inicial debe terminar de cargar antes de ejecutar
+                        // fetch: de lo contrario la primera búsqueda puede ocurrir
+                        // en un documento aún no listo y devolver vacío.
+                        let deadline = Instant::now() + Duration::from_secs(15);
+                        while !page_ready_inner.load(Ordering::Acquire) && Instant::now() < deadline
+                        {
+                            thread::sleep(Duration::from_millis(50));
+                        }
+                        if !page_ready_inner.load(Ordering::Acquire) {
+                            let resp = SocketResponse {
+                                id: Some(req.id),
+                                result: None,
+                                error: Some("WEBVIEW_NOT_READY".to_string()),
+                                pong: None,
+                            };
+                            let _ = writeln!(
+                                writer,
+                                "{}",
+                                serde_json::to_string(&resp).unwrap_or_default()
+                            );
+                            let _ = writer.flush();
+                            line.clear();
+                            continue;
+                        }
                         if req.ping {
                             let resp = SocketResponse {
                                 id: Some(req.id),
