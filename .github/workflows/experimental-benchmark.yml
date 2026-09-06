@@ -25,7 +25,7 @@ jobs:
         uses: actions/checkout@v4
 
       - name: Configurar Java 21
-        uses: actions/setup-java@v4
+        uses: actions/setup-java@v5
         with:
           distribution: temurin
           java-version: "21"
@@ -79,19 +79,23 @@ jobs:
 
       - name: Validar ambos paquetes
         run: |
+          set -euo pipefail
           for variant in full jlink; do
             package="dist-${variant}/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz"
-            tar -tzf "$package" | grep -q '/app/jre/bin/java$'
-            tar -tzf "$package" | grep -q '/app/jre/bin/keytool$'
-            tar -tzf "$package" | grep -q '/app/jre/lib/security/cacerts$'
+            test -s "$package"
             check_dir="$(mktemp -d)"
             tar -xzf "$package" -C "$check_dir"
-            root="$(find "$check_dir" -mindepth 1 -maxdepth 1 -type d -name 'Bakeneko-Portable-*' -print -quit)"
+            # No depender del formato exacto que use tar para listar la
+            # carpeta raíz (con o sin ./): localizamos el runtime extraído.
+            java_path="$(find "$check_dir" -type f -path '*/app/jre/bin/java' -print -quit)"
+            test -n "$java_path"
+            root="${java_path%/app/jre/bin/java}"
             test -x "$root/app/jre/bin/java"
             test -x "$root/app/jre/bin/keytool"
             test -s "$root/app/jre/lib/security/cacerts"
+            echo "[$variant] runtime encontrado en $root"
             "$root/app/jre/bin/java" -version
-            "$root/app/jre/bin/keytool" -help >/dev/null
+            "$root/app/jre/bin/keytool" -help >/dev/null 2>&1
           done
 
       - name: Unir reportes
