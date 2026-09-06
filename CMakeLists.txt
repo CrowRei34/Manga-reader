@@ -22,6 +22,8 @@ endforeach()
 # setup-java puede exponer cacerts como symlink absoluto. CPack debe guardar el
 # archivo real para que HTTPS funcione después de descomprimir en otra máquina.
 file(REAL_PATH "${BAKENEKO_JRE_HOME}/lib/security/cacerts" BAKENEKO_CACERTS)
+file(REAL_PATH "${BAKENEKO_JRE_HOME}/bin/java" BAKENEKO_JAVA)
+file(REAL_PATH "${BAKENEKO_JRE_HOME}/bin/keytool" BAKENEKO_KEYTOOL)
 
 install(PROGRAMS packaging/bakeneko DESTINATION .)
 install(FILES packaging/README-portable.txt DESTINATION . RENAME README.txt)
@@ -29,6 +31,10 @@ install(PROGRAMS target/release/bakeneko DESTINATION app)
 install(FILES daemon/build/libs/bakeneko-daemon.jar DESTINATION app)
 install(DIRECTORY assets DESTINATION app)
 install(DIRECTORY "${BAKENEKO_JRE_HOME}/" DESTINATION app/jre USE_SOURCE_PERMISSIONS)
+# Algunos JDK distribuidos por setup-java exponen estos lanzadores como
+# enlaces. Reinstalamos los archivos reales para que CPack no los omita.
+install(PROGRAMS "${BAKENEKO_JAVA}" DESTINATION app/jre/bin RENAME java)
+install(PROGRAMS "${BAKENEKO_KEYTOOL}" DESTINATION app/jre/bin RENAME keytool)
 install(CODE "file(REMOVE \"\$ENV{DESTDIR}\${CMAKE_INSTALL_PREFIX}/app/jre/lib/security/cacerts\")")
 install(FILES "${BAKENEKO_CACERTS}" DESTINATION app/jre/lib/security RENAME cacerts)
 
