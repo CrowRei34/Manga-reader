@@ -141,6 +141,16 @@ jobs:
             cat validation-diagnostics.txt 2>/dev/null || true
           } > experimental-benchmark.txt
 
+      - name: Exponer diagnóstico en el check
+        if: always()
+        run: |
+          while IFS= read -r line; do
+            [ -n "$line" ] || continue
+            # GitHub muestra estas líneas en las anotaciones del job, incluso
+            # cuando el paso de validación terminó con error.
+            printf '::notice file=.github/workflows/experimental-benchmark.yml,line=1::%s\n' "$line"
+          done < validation-diagnostics.txt
+
       - name: Publicar reporte
         if: always()
         uses: actions/upload-artifact@v4
