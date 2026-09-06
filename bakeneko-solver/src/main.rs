@@ -83,7 +83,11 @@ fn get_cache_dir() -> PathBuf {
 fn cache_stem(url: &str) -> String {
     let mut hasher = Sha256::new();
     hasher.update(url.as_bytes());
-    hasher.finalize().iter().map(|b| format!("{:02x}", b)).collect()
+    hasher
+        .finalize()
+        .iter()
+        .map(|b| format!("{:02x}", b))
+        .collect()
 }
 
 fn get_solver_socket_path() -> PathBuf {
@@ -91,7 +95,25 @@ fn get_solver_socket_path() -> PathBuf {
         let uid = unsafe { libc::getuid() };
         format!("/tmp/bakeneko-{}", uid)
     });
-    PathBuf::from(runtime_dir).join("bakeneko").join("solver.sock")
+    PathBuf::from(runtime_dir)
+        .join("bakeneko")
+        .join("solver.sock")
+}
+
+/// Wry 0.47 usa el backend WebKitGTK/X11 en Linux. Tao prefiere Wayland
+/// cuando la sesión lo ofrece, pero ese handle no es aceptado por Wry y acaba
+/// en `UnsupportedWindowHandle`. Si XWayland está disponible, fuerza X11 solo
+/// para este proceso auxiliar; la interfaz principal no cambia de backend.
+fn configure_webkit_backend() {
+    if env::var_os("DISPLAY").is_some() {
+        env::set_var("WINIT_UNIX_BACKEND", "x11");
+        env::set_var("GDK_BACKEND", "x11");
+        eprintln!("[solver] backend WebKitGTK: X11 (forzado para compatibilidad con Wry)");
+    } else {
+        eprintln!(
+            "[solver] no hay DISPLAY; Wry/WebKitGTK requiere X11 (necesita XWayland o una sesión X11)"
+        );
+    }
 }
 
 fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -124,6 +146,7 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     env::set_var("GST_DEBUG", "0");
     env::set_var("PULSE_SERVER", "");
     env::set_var("PIPEWIRE_REMOTE", "");
+    configure_webkit_backend();
 
     let sock_path = get_solver_socket_path();
     if let Some(parent) = sock_path.parent() {
@@ -161,12 +184,24 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut web_context = WebContext::new(Some(profile_dir));
 
     let proxy_ipc = proxy.clone();
-    let webview = WebViewBuilder::with_web_context(&mut web_context)
+    let webview = match WebViewBuilder::with_web_context(&mut web_context)
         .with_url(base_url)
         .with_ipc_handler(move |req| {
             let _ = proxy_ipc.send_event(UserEvent::IpcResult(req.body().clone()));
         })
-        .build(&window)?;
+        .build(&window)
+    {
+        Ok(webview) => webview,
+        Err(error) => {
+            eprintln!(
+                "[solver] no se pudo crear WebViewGTK: {error}; DISPLAY={} GDK_BACKEND={} WINIT_UNIX_BACKEND={}",
+                env::var("DISPLAY").unwrap_or_else(|_| "(no definido)".to_string()),
+                env::var("GDK_BACKEND").unwrap_or_else(|_| "(no definido)".to_string()),
+                env::var("WINIT_UNIX_BACKEND").unwrap_or_else(|_| "(no definido)".to_string()),
+            );
+            return Err(error.into());
+        }
+    };
 
     // Servidor Unix Domain Socket en un hilo dedicado
     let listener = UnixListener::bind(&sock_path)?;
@@ -181,7 +216,9 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                 let mut writer = &stream;
                 let mut line = String::new();
                 while let Ok(n) = reader.read_line(&mut line) {
-                    if n == 0 { break; }
+                    if n == 0 {
+                        break;
+                    }
                     let trimmed = line.trim();
                     if trimmed.is_empty() {
                         line.clear();
@@ -195,11 +232,19 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                 error: None,
                                 pong: Some(true),
                             };
-                            let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap_or_default());
+                            let _ = writeln!(
+                                writer,
+                                "{}",
+                                serde_json::to_string(&resp).unwrap_or_default()
+                            );
                             let _ = writer.flush();
                         } else {
                             let (tx, rx) = channel();
-                            let req_id = if req.id.is_empty() { "default".to_string() } else { req.id };
+                            let req_id = if req.id.is_empty() {
+                                "default".to_string()
+                            } else {
+                                req.id
+                            };
                             let _ = proxy_inner.send_event(UserEvent::Fetch {
                                 id: req_id,
                                 url: req.url,
@@ -207,7 +252,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                             });
                             match rx.recv_timeout(Duration::from_secs(25)) {
                                 Ok(resp) => {
-                                    let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap_or_default());
+                                    let _ = writeln!(
+                                        writer,
+                                        "{}",
+                                        serde_json::to_string(&resp).unwrap_or_default()
+                                    );
                                     let _ = writer.flush();
                                 }
                                 Err(_) => {
@@ -217,7 +266,11 @@ fn main() -> Result<(), Box<dyn std::error::Error>> {
                                         error: Some("TIMEOUT".to_string()),
                                         pong: None,
                                     };
-                                    let _ = writeln!(writer, "{}", serde_json::to_string(&resp).unwrap_or_default());
+                                    let _ = writeln!(
+                                        writer,
+                                        "{}",
+                                        serde_json::to_string(&resp).unwrap_or_default()
+                                    );
                                     let _ = writer.flush();
                                 }
                             }
