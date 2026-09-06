@@ -46,22 +46,69 @@ jobs:
       - name: Construir binarios Rust
         run: cargo build --release --locked
 
-      - name: Empaquetar línea base
+      - name: Empaquetar runtime completo
         env:
           SKIP_BUILD: "1"
           JRE_HOME: ${{ env.JAVA_HOME }}
+          CPACK_BUILD_DIR: build/cpack-full
+          CPACK_DIST_DIR: dist-full
         run: ./package_cpack.sh 0.0.0-experimental
 
-      - name: Medir y guardar reporte
+      - name: Medir runtime completo
         env:
           JRE_HOME: ${{ env.JAVA_HOME }}
-          PACKAGE_PATH: dist/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz
-          REPORT_PATH: experimental-benchmark.txt
+          PACKAGE_PATH: dist-full/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz
+          REPORT_PATH: benchmark-full.txt
         run: scripts/measure-build.sh
+
+      - name: Empaquetar runtime jlink
+        env:
+          SKIP_BUILD: "1"
+          BAKENEKO_JLINK: "1"
+          JRE_HOME: ${{ env.JAVA_HOME }}
+          CPACK_BUILD_DIR: build/cpack-jlink
+          CPACK_DIST_DIR: dist-jlink
+        run: ./package_cpack.sh 0.0.0-experimental
+
+      - name: Medir runtime jlink
+        env:
+          JRE_HOME: build/cpack-jlink/jre-jlink
+          PACKAGE_PATH: dist-jlink/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz
+          REPORT_PATH: benchmark-jlink.txt
+        run: scripts/measure-build.sh
+
+      - name: Validar ambos paquetes
+        run: |
+          for variant in full jlink; do
+            package="dist-${variant}/Bakeneko-Portable-v0.0.0-experimental-Linux-x86_64.tar.gz"
+            tar -tzf "$package" | grep -q '/app/jre/bin/java$'
+            tar -tzf "$package" | grep -q '/app/jre/bin/keytool$'
+            tar -tzf "$package" | grep -q '/app/jre/lib/security/cacerts$'
+            check_dir="$(mktemp -d)"
+            tar -xzf "$package" -C "$check_dir"
+            root="$(find "$check_dir" -mindepth 1 -maxdepth 1 -type d -name 'Bakeneko-Portable-*' -print -quit)"
+            test -x "$root/app/jre/bin/java"
+            test -x "$root/app/jre/bin/keytool"
+            test -s "$root/app/jre/lib/security/cacerts"
+            "$root/app/jre/bin/java" -version
+            "$root/app/jre/bin/keytool" -help >/dev/null
+          done
+
+      - name: Unir reportes
+        run: |
+          {
+            cat benchmark-full.txt
+            echo
+            echo "===== jlink ====="
+            cat benchmark-jlink.txt
+          } > experimental-benchmark.txt
 
       - name: Publicar reporte
         uses: actions/upload-artifact@v4
         with:
           name: experimental-benchmark-${{ github.sha }}
-          path: experimental-benchmark.txt
+          path: |
+            experimental-benchmark.txt
+            benchmark-full.txt
+            benchmark-jlink.txt
           if-no-files-found: error
