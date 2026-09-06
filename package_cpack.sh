@@ -44,7 +44,7 @@ if [ "${BAKENEKO_JLINK:-0}" = "1" ]; then
   # Esta lista cubre Kotlin, coroutines, OkHttp/Nashorn, TLS y SQLite. jdeps
   # añade módulos detectados en el JAR cuando está disponible; la lista base
   # evita que la reflexión de Nashorn deje un runtime incompleto.
-  JLINK_MODULES="${BAKENEKO_JLINK_MODULES:-java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.unsupported,jdk.zipfs}"
+  JLINK_MODULES="${BAKENEKO_JLINK_MODULES:-java.base,java.compiler,java.datatransfer,java.desktop,java.instrument,java.logging,java.management,java.management.rmi,java.naming,java.net.http,java.prefs,java.rmi,java.scripting,java.security.jgss,java.security.sasl,java.sql,java.transaction.xa,java.xml,jdk.crypto.ec,jdk.crypto.cryptoki,jdk.jartool,jdk.unsupported,jdk.zipfs}"
   if [ -x "$JRE_SRC/bin/jdeps" ]; then
     DETECTED_MODULES="$($JRE_SRC/bin/jdeps --ignore-missing-deps --print-module-deps \
       --multi-release 21 "$PWD/daemon/build/libs/bakeneko-daemon.jar" 2>/dev/null || true)"
