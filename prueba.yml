@@ -1,0 +1,19 @@
+name: Probar en mi PC
+
+on:
+  push:
+  workflow_dispatch:
+
+jobs:
+  prueba:
+    runs-on: self-hosted
+
+    steps:
+      - name: Descargar código
+        uses: actions/checkout@v4
+
+      - name: Ejecutar en v1
+        run: |
+          echo "Este trabajo corre en mi PC"
+          hostname
+          uname -a
