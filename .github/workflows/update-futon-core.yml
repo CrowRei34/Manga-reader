@@ -17,7 +17,7 @@ concurrency:
 jobs:
   update:
     name: Comprobar, probar y proponer actualización
-    runs-on: ubuntu-latest
+    runs-on: [self-hosted, linux, x64, bakeneko]
     timeout-minutes: 45
 
     steps:
@@ -82,4 +82,3 @@ jobs:
             --head "$branch" \
             --title "chore: actualizar núcleo Futon a $short_sha" \
             --body $'Actualización automática del núcleo de parsers Futon.\n\nValidaciones ejecutadas:\n- pruebas del daemon Kotlin/Java\n- generación del JAR autocontenido\n- pruebas de la aplicación Rust\n- comprobación del diff\n\nRevisión completa: `'$NEW_SHA'`'
-
