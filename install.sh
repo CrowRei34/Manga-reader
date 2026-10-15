@@ -63,9 +63,10 @@ tar -xzf "$ARCHIVE" -C "$TMP_DIR"
 TOP="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'Bakeneko-Portable-*' -print -quit)"
 if [ -z "$TOP" ] || [ ! -x "$TOP/bakeneko" ] \
   || [ ! -x "$TOP/app/jre/bin/java" ] \
+  || [ ! -x "$TOP/app/bakeneko-solver" ] \
   || [ ! -f "$TOP/app/bakeneko-daemon.jar" ]; then
   echo "ERROR: el paquete no tiene una estructura válida." >&2
-  echo "Debe contener bakeneko, app/jre/bin/java y app/bakeneko-daemon.jar." >&2
+  echo "Debe contener bakeneko, app/bakeneko-solver, app/jre/bin/java y app/bakeneko-daemon.jar." >&2
   exit 1
 fi
 VERSION="$(basename "$TOP" | sed 's/^Bakeneko-Portable-v//; s/-Linux-x86_64$//')"

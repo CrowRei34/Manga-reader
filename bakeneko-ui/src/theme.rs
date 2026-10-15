@@ -336,6 +336,7 @@ pub fn link_button(theme: &Theme, status: button::Status) -> button::Style {
 }
 
 /// Botón de texto acentuado (ej. "Descargar Todo" en terracota).
+#[allow(dead_code)]
 pub fn link_button_accent(theme: &Theme, status: button::Status) -> button::Style {
     let colors = ui_colors(theme);
     button::Style {
@@ -346,6 +347,66 @@ pub fn link_button_accent(theme: &Theme, status: button::Status) -> button::Styl
         text_color: match status {
             button::Status::Hovered | button::Status::Pressed => colors.accent_hover,
             _ => colors.accent,
+        },
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Botón estilo card para capítulos: fondo superficie elevada, borde sepia, hover acentuado.
+#[allow(dead_code)]
+pub fn chapter_card_button(theme: &Theme, status: button::Status) -> button::Style {
+    let colors = ui_colors(theme);
+    let (bg, border_color) = match status {
+        button::Status::Hovered => (Some(colors.hover.into()), colors.accent),
+        button::Status::Pressed => (Some(colors.hover.into()), colors.accent),
+        _ => (Some(Color { a: 0.86, ..colors.elevated }.into()), Color { a: 0.72, ..colors.border }),
+    };
+    button::Style {
+        background: bg,
+        text_color: colors.text,
+        border: Border {
+            color: border_color,
+            width: 1.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Botón transparente para el cuerpo clicable del capítulo.
+pub fn transparent_card_button(theme: &Theme, status: button::Status) -> button::Style {
+    let colors = ui_colors(theme);
+    button::Style {
+        background: match status {
+            button::Status::Hovered | button::Status::Pressed => Some(Color { a: 0.55, ..colors.hover }.into()),
+            _ => None,
+        },
+        text_color: colors.text,
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Botón de acción para el icono de descarga dentro del card de capítulo.
+pub fn icon_action_button(theme: &Theme, status: button::Status) -> button::Style {
+    let colors = ui_colors(theme);
+    button::Style {
+        background: match status {
+            button::Status::Hovered | button::Status::Pressed => Some(Color { a: 0.7, ..colors.hover }.into()),
+            _ => None,
+        },
+        text_color: match status {
+            button::Status::Hovered | button::Status::Pressed => colors.accent_hover,
+            _ => colors.muted,
         },
         border: Border {
             color: Color::TRANSPARENT,
@@ -401,6 +462,51 @@ pub fn panel_container(theme: &Theme) -> container::Style {
         text_color: Some(colors.text),
         border: Border {
             color: Color { a: 0.62, ..colors.border },
+            width: 1.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Card para fila de capítulo (contiene título/subtítulo y botón de descarga integrado).
+pub fn chapter_card_container(theme: &Theme) -> container::Style {
+    let colors = ui_colors(theme);
+    container::Style {
+        background: Some(Color { a: 0.86, ..colors.elevated }.into()),
+        text_color: Some(colors.text),
+        border: Border {
+            color: Color { a: 0.72, ..colors.border },
+            width: 1.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Badge con fondo de acento y texto en alto contraste (ej. contador de capítulos).
+pub fn badge(theme: &Theme) -> container::Style {
+    let colors = ui_colors(theme);
+    container::Style {
+        background: Some(colors.accent.into()),
+        text_color: Some(colors.on_accent),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(0.0),
+        },
+        ..Default::default()
+    }
+}
+
+/// Pill badge suave con fondo elevado y borde sutil (ej. "94 cap.").
+pub fn pill_badge(theme: &Theme) -> container::Style {
+    let colors = ui_colors(theme);
+    container::Style {
+        background: Some(Color { a: 0.5, ..colors.sidebar }.into()),
+        text_color: Some(colors.muted),
+        border: Border {
+            color: Color { a: 0.4, ..colors.border },
             width: 1.0,
             radius: radius(0.0),
         },
@@ -532,18 +638,17 @@ pub fn divider(theme: &Theme) -> container::Style {
     }
 }
 
-/// Barra de desplazamiento común: discreta en reposo, visible al interactuar
-/// y con el mismo lenguaje visual sepia que el resto de la aplicación.
+/// Barra de desplazamiento común: el riel vertical permanece sutilmente visible en reposo
+/// para mantener el contenido centrado (catálogo, listas), mientras que el riel horizontal
+/// se mantiene invisible en reposo para no solapar botones ni chips seleccionables.
 pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable::Style {
     let colors = ui_colors(theme);
     let active = matches!(
         status,
         scrollable::Status::Hovered { .. } | scrollable::Status::Dragged { .. }
     );
-    let rail = scrollable::Rail {
-        // La barra se mantiene invisible en reposo; sólo aparece al pasar el
-        // cursor o arrastrarla, evitando que tape chips y portadas.
-        background: Some(Color { a: 0.0, ..colors.sidebar }.into()),
+    let vertical_rail = scrollable::Rail {
+        background: Some(Color { a: 0.15, ..colors.sidebar }.into()),
         border: Border {
             color: Color::TRANSPARENT,
             width: 0.0,
@@ -551,9 +656,29 @@ pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable
         },
         scroller: scrollable::Scroller {
             color: if active {
-                Color { a: 0.78, ..colors.accent }
+                Color { a: 0.85, ..colors.accent }
             } else {
-                Color { a: 0.0, ..colors.dim }
+                Color { a: 0.35, ..colors.muted }
+            },
+            border: Border {
+                color: Color::TRANSPARENT,
+                width: 0.0,
+                radius: radius(0.0),
+            },
+        },
+    };
+    let horizontal_rail = scrollable::Rail {
+        background: Some(Color::TRANSPARENT.into()),
+        border: Border {
+            color: Color::TRANSPARENT,
+            width: 0.0,
+            radius: radius(0.0),
+        },
+        scroller: scrollable::Scroller {
+            color: if active {
+                Color { a: 0.60, ..colors.accent }
+            } else {
+                Color::TRANSPARENT
             },
             border: Border {
                 color: Color::TRANSPARENT,
@@ -564,8 +689,8 @@ pub fn scrollable_style(theme: &Theme, status: scrollable::Status) -> scrollable
     };
     scrollable::Style {
         container: container::Style::default(),
-        vertical_rail: rail,
-        horizontal_rail: rail,
+        vertical_rail,
+        horizontal_rail,
         gap: Some(Color { a: 0.0, ..colors.background }.into()),
     }
 }

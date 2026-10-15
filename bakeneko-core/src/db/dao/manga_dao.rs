@@ -139,6 +139,14 @@ pub fn list_library(conn: &Connection) -> Result<Vec<Manga>, DbError> {
     Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
 }
 
+pub fn list_recently_added(conn: &Connection, limit: i64) -> Result<Vec<Manga>, DbError> {
+    let mut stmt = conn.prepare(&format!(
+        "SELECT {SELECT_COLS} FROM manga WHERE library=1 ORDER BY added_at DESC LIMIT ?1"
+    ))?;
+    let rows = stmt.query_map(params![limit], row_to_manga)?;
+    Ok(rows.collect::<rusqlite::Result<Vec<_>>>()?)
+}
+
 pub fn list_library_by_category(conn: &Connection, category_id: i64) -> Result<Vec<Manga>, DbError> {
     let mut stmt = conn.prepare(&format!(
         "SELECT {SELECT_COLS} FROM manga m

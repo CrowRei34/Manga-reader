@@ -32,6 +32,7 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
+            libwebkit2gtk-4.1-dev \
             libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev \
             libxcursor-dev libxrandr-dev libxi-dev libvulkan-dev \
             libgl1-mesa-dev pkg-config
@@ -41,7 +42,10 @@ jobs:
         run: ./gradlew test shadowJar --no-daemon
 
       - name: Probar Rust
-        run: cargo test --workspace --lib --locked
+        run: cargo test --workspace --all-targets --locked
 
       - name: Compilar Rust en modo release
-        run: cargo build --release --locked
+        run: cargo build --release --locked --package bakeneko --package bakeneko-solver
+
+      - name: Verificar el solver
+        run: target/release/bakeneko-solver --version

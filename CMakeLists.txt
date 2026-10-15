@@ -10,6 +10,7 @@ endif()
 
 foreach(required_file
     "${CMAKE_SOURCE_DIR}/target/release/bakeneko"
+    "${CMAKE_SOURCE_DIR}/target/release/bakeneko-solver"
     "${CMAKE_SOURCE_DIR}/daemon/build/libs/bakeneko-daemon.jar"
     "${BAKENEKO_JRE_HOME}/bin/java"
     "${BAKENEKO_JRE_HOME}/bin/keytool"
@@ -26,6 +27,7 @@ file(REAL_PATH "${BAKENEKO_JRE_HOME}/lib/security/cacerts" BAKENEKO_CACERTS)
 install(PROGRAMS packaging/bakeneko DESTINATION .)
 install(FILES packaging/README-portable.txt DESTINATION . RENAME README.txt)
 install(PROGRAMS target/release/bakeneko DESTINATION app)
+install(PROGRAMS target/release/bakeneko-solver DESTINATION app)
 install(FILES daemon/build/libs/bakeneko-daemon.jar DESTINATION app)
 install(DIRECTORY assets DESTINATION app)
 install(DIRECTORY "${BAKENEKO_JRE_HOME}/" DESTINATION app/jre USE_SOURCE_PERMISSIONS)

@@ -31,7 +31,7 @@ use rusqlite::Connection;
 use std::collections::HashMap;
 use std::path::PathBuf;
 use std::sync::{Arc, Mutex};
-use tokio::sync::broadcast;
+use tokio::sync::{broadcast, Notify};
 
 
 #[derive(Debug, Clone)]
@@ -71,6 +71,7 @@ pub struct Inner {
 pub struct DownloadManager {
     inner: Arc<Inner>,
     tx: broadcast::Sender<DownloadEvent>,
+    notify: Arc<Notify>,
 }
 
 impl DownloadManager {
@@ -91,22 +92,63 @@ impl DownloadManager {
                 concurrency,
             }),
             tx,
+            notify: Arc::new(Notify::new()),
         }
     }
 
     /// Encola la descarga del capítulo: asegura la fila de manga y upsert del
-    /// estado `Queued`. Emite `DownloadEvent::Queued`.
+    /// estado `Queued`. Emite `DownloadEvent::Queued` y despierta al worker.
     pub fn enqueue(&self, m: &Manga, ch: &Chapter) -> Result<(), DbError> {
         let conn = self.inner.db.lock().unwrap();
         let id = manga_dao::upsert(&conn, m, 0)?;
         download_dao::upsert(&conn, id, &ch.url, DownloadState::Queued)?;
         let _ = self.tx.send(DownloadEvent::Queued(id, ch.url.clone()));
+        self.notify.notify_one();
         Ok(())
     }
 
     /// Suscripción a los eventos de descarga (cola de 64, broadcast).
     pub fn subscribe(&self) -> broadcast::Receiver<DownloadEvent> {
         self.tx.subscribe()
+    }
+
+    /// Inicia el worker en segundo plano que procesa la cola de descargas.
+    pub fn start_worker(&self) {
+        let mgr = self.clone();
+        {
+            let conn = mgr.inner.db.lock().unwrap();
+            let _ = download_dao::reset_interrupted(&conn);
+        }
+        tokio::spawn(async move {
+            loop {
+                let m = mgr.clone();
+                let has_more = tokio::task::spawn_blocking(move || {
+                    let queued_count = {
+                        let conn = m.inner.db.lock().unwrap();
+                        download_dao::list_by_state(&conn, DownloadState::Queued)
+                            .map(|l| l.len())
+                            .unwrap_or(0)
+                    };
+                    if queued_count > 0 {
+                        let _ = m.poll_once();
+                        queued_count > m.inner.concurrency
+                    } else {
+                        false
+                    }
+                })
+                .await
+                .unwrap_or(false);
+
+                if has_more {
+                    tokio::time::sleep(std::time::Duration::from_millis(50)).await;
+                } else {
+                    tokio::select! {
+                        _ = mgr.notify.notified() => {},
+                        _ = tokio::time::sleep(std::time::Duration::from_secs(5)) => {},
+                    }
+                }
+            }
+        });
     }
 
     /// Procesa un lote (hasta `concurrency`) de trabajos `Queued`. Un fallo
