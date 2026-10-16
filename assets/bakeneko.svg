@@ -1,0 +1,11 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="0 0 256 256" role="img" aria-labelledby="title desc">
+  <title id="title">Bakeneko</title>
+  <desc id="desc">A black cat reading a book</desc>
+  <rect width="256" height="256" rx="48" fill="#17151f"/>
+  <path d="M48 92 70 48l35 28a63 63 0 0 1 46 0l35-28 22 44v66c0 34-36 61-80 61s-80-27-80-61Z" fill="#7c5cff"/>
+  <path d="M67 155c15-17 35-26 61-26s46 9 61 26l-14 34H81Z" fill="#f4f0e8"/>
+  <path d="m78 159 49 13 49-13-7 35-42-11-42 11Z" fill="#d8cffa"/>
+  <circle cx="96" cy="112" r="7" fill="#17151f"/>
+  <circle cx="160" cy="112" r="7" fill="#17151f"/>
+  <path d="M121 126q7 7 14 0M116 95l-26-9M140 95l26-9" fill="none" stroke="#17151f" stroke-linecap="round" stroke-width="6"/>
+</svg>

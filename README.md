@@ -12,7 +12,8 @@ Un lector de manga desktop de alto rendimiento construido con **Rust** y la inte
 ## Requisitos
 
 - **Rust:** 1.75+
-- **Java / JRE:** 21+ para desarrollo. El paquete portátil ya incluye Java.
+- **Java / JDK:** 21+ para desarrollo y para crear paquetes. El paquete portátil ya incluye un runtime Java reducido.
+- **Linux portable:** x86_64 con glibc 2.35+ y una sesión gráfica X11 o Wayland.
 
 ## Ejecución
 
@@ -31,11 +32,15 @@ cd Bakeneko-Portable-vX.Y.Z-Linux-x86_64
 ./bakeneko
 ```
 
-Para generarlo localmente con un JDK 21:
+Para generarlo localmente con un JDK 21+:
 
 ```bash
-JRE_HOME=/ruta/al/jdk-21 ./package_cpack.sh 0.2.6
+JDK_HOME=/ruta/al/jdk-21 ./package_cpack.sh 0.3.14
 ```
+
+El empaquetado usa `jlink` para incluir únicamente los módulos Java necesarios;
+no copia el JDK completo. El tarball versionado y su checksum son los únicos
+artefactos de instalación publicados para evitar duplicados.
 
 ## Instalación y actualización
 

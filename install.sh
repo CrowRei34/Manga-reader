@@ -26,6 +26,15 @@ if [ "${1:-}" != "" ] && [ "${1:-}" != "--update" ] && [ "${1:-}" != "update" ];
 fi
 
 command -v tar >/dev/null || { echo "ERROR: tar es necesario." >&2; exit 1; }
+command -v sha256sum >/dev/null || { echo "ERROR: sha256sum es necesario." >&2; exit 1; }
+
+case "$(uname -m)" in
+  x86_64|amd64) ;;
+  *)
+    echo "ERROR: arquitectura no soportada: $(uname -m). Se requiere Linux x86_64." >&2
+    exit 1
+    ;;
+esac
 
 download() {
   local url="$1"
@@ -63,9 +72,10 @@ tar -xzf "$ARCHIVE" -C "$TMP_DIR"
 TOP="$(find "$TMP_DIR" -mindepth 1 -maxdepth 1 -type d -name 'Bakeneko-Portable-*' -print -quit)"
 if [ -z "$TOP" ] || [ ! -x "$TOP/bakeneko" ] \
   || [ ! -x "$TOP/app/jre/bin/java" ] \
-  || [ ! -f "$TOP/app/bakeneko-daemon.jar" ]; then
+  || [ ! -f "$TOP/app/bakeneko-daemon.jar" ] \
+  || [ ! -f "$TOP/app/assets/bakeneko.svg" ]; then
   echo "ERROR: el paquete no tiene una estructura válida." >&2
-  echo "Debe contener bakeneko, app/jre/bin/java y app/bakeneko-daemon.jar." >&2
+  echo "Debe contener bakeneko, app/jre/bin/java, app/bakeneko-daemon.jar y el icono." >&2
   exit 1
 fi
 VERSION="$(basename "$TOP" | sed 's/^Bakeneko-Portable-v//; s/-Linux-x86_64$//')"
@@ -81,10 +91,12 @@ cat > "$DESKTOP_DIR/bakeneko.desktop" <<EOF
 Name=Bakeneko Reader
 Comment=Lector de manga
 Exec=$BIN_DIR/bakeneko
-Icon=$BASE/current/app/assets/bakeneko.png
+TryExec=$BIN_DIR/bakeneko
+Icon=$BASE/current/app/assets/bakeneko.svg
 Terminal=false
 Type=Application
 Categories=Utility;Graphics;
+StartupNotify=true
 EOF
 echo "Bakeneko $VERSION instalado en $TARGET"
 echo "Ejecuta: $BIN_DIR/bakeneko"

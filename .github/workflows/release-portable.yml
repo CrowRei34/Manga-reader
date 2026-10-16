@@ -12,6 +12,8 @@ on:
 
 permissions:
   contents: write
+  attestations: write
+  id-token: write
 
 concurrency:
   group: release-${{ github.ref }}
@@ -73,17 +75,19 @@ jobs:
 
       - name: Validar Java dentro del paquete
         run: |
-          tar -tzf "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz" \
-            | grep -q '/app/jre/bin/java$'
+          ./scripts/validate-portable-package.sh \
+            "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz"
 
       - name: Generar suma SHA-256
         run: |
           VERSION="${{ steps.version.outputs.value }}"
           PACKAGE="Bakeneko-Portable-v${VERSION}-Linux-x86_64.tar.gz"
-          STABLE="Bakeneko-Portable-Linux-x86_64.tar.gz"
-          cp "dist/${PACKAGE}" "dist/${STABLE}"
-          sed "s/${PACKAGE}/${STABLE}/" "dist/${PACKAGE}.sha256" > "dist/${STABLE}.sha256"
           cp "dist/${PACKAGE}.sha256" SHA256SUMS
+
+      - name: Publicar procedencia verificable
+        uses: actions/attest-build-provenance@v2
+        with:
+          subject-path: "dist/Bakeneko-Portable-v${{ steps.version.outputs.value }}-Linux-x86_64.tar.gz"
 
       - name: Publicar release
         env:
@@ -91,16 +95,19 @@ jobs:
           VERSION: ${{ steps.version.outputs.value }}
         run: |
           if gh release view "v$VERSION" >/dev/null 2>&1; then
+            for legacy_asset in \
+              Bakeneko-Portable-Linux-x86_64.tar.gz \
+              Bakeneko-Portable-Linux-x86_64.tar.gz.sha256; do
+              gh release delete-asset "v$VERSION" "$legacy_asset" --yes 2>/dev/null || true
+            done
             gh release upload "v$VERSION" \
               "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
-              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz" \
-              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz.sha256" \
+              "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz.sha256" \
               SHA256SUMS --clobber
           else
             gh release create "v$VERSION" \
               "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz" \
-              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz" \
-              "dist/Bakeneko-Portable-Linux-x86_64.tar.gz.sha256" \
+              "dist/Bakeneko-Portable-v$VERSION-Linux-x86_64.tar.gz.sha256" \
               SHA256SUMS \
               --title "Bakeneko v$VERSION" \
               --generate-notes
