@@ -42,6 +42,21 @@ El empaquetado usa `jlink` para incluir únicamente los módulos Java necesarios
 no copia el JDK completo. El tarball versionado y su checksum son los únicos
 artefactos de instalación publicados para evitar duplicados.
 
+## Instalación como paquete cpak
+
+La publicación también contiene una imagen OCI compatible con Containerpak y
+un `cpak.json` fijado al digest de esa imagen. Con `cpak` y `cpak-storaged`
+instalados, puedes instalarlo directamente desde este repositorio:
+
+```bash
+cpak install github.com/CrowRei34/Manga-reader
+```
+
+El paquete cpak está aislado y solicita únicamente GUI Wayland/X11, GPU,
+portapapeles, red y escritura en el directorio personal para conservar la
+biblioteca, la caché y la configuración. La publicación actual es para
+Linux x86_64.
+
 ## Instalación y actualización
 
 Para instalar Bakeneko por primera vez o actualizarlo a la última versión

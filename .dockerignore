@@ -1,0 +1,9 @@
+.git
+.github
+target
+*/target
+daemon/build
+daemon/.gradle
+dist/*
+!dist/cpak-root
+!dist/cpak-root/**

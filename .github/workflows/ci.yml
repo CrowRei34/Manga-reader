@@ -34,13 +34,29 @@ jobs:
           sudo apt-get install -y \
             libwayland-dev libxkbcommon-dev libx11-dev libx11-xcb-dev \
             libxcursor-dev libxrandr-dev libxi-dev libvulkan-dev \
-            libgl1-mesa-dev libxml2-utils pkg-config
+            libgl1-mesa-dev libxml2-utils desktop-file-utils pkg-config
 
       - name: Validar scripts y árbol fuente
         run: |
-          bash -n install.sh package_cpack.sh packaging/bakeneko scripts/validate-portable-package.sh
+          bash -n install.sh package_cpack.sh packaging/bakeneko packaging/bakeneko-cpak \
+            scripts/prepare-cpak-root.sh scripts/write-cpak-manifest.sh \
+            scripts/validate-portable-package.sh
           xmllint --noout assets/bakeneko.svg
+          desktop-file-validate packaging/bakeneko.desktop
           test -z "$(git ls-files | grep -E '(^|/)(target|build)/' || true)"
+
+      - name: Validar manifest cpak publicado
+        if: hashFiles('cpak.json') != ''
+        env:
+          CPAK_VERSION: "2.13.3"
+          CPAK_SHA256: "1c842ae9eeccb071d948e2bf0360453f6b39edf011b585f3d0c4a77548c84b98"
+        run: |
+          curl --fail --location --silent --show-error \
+            "https://github.com/Containerpak/cpak/releases/download/v${CPAK_VERSION}/cpak-linux-amd64" \
+            --output "$RUNNER_TEMP/cpak"
+          echo "${CPAK_SHA256}  $RUNNER_TEMP/cpak" | sha256sum --check
+          chmod 0755 "$RUNNER_TEMP/cpak"
+          "$RUNNER_TEMP/cpak" validate cpak.json
 
       - name: Probar y compilar el daemon
         working-directory: daemon

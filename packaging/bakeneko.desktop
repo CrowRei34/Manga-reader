@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Bakeneko
+Comment=Lector de manga para Linux
+Exec=/usr/bin/bakeneko
+Icon=bakeneko
+Terminal=false
+Categories=Graphics;Viewer;
+StartupNotify=true
