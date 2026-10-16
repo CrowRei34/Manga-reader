@@ -22,7 +22,7 @@ concurrency:
 jobs:
   portable:
     name: Compilar y publicar tar.gz x86_64
-    runs-on: [self-hosted, linux, x64, bakeneko]
+    runs-on: ubuntu-22.04
     timeout-minutes: 60
 
     steps:
